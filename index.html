@@ -321,7 +321,7 @@
 <div class="sheet-bg" id="sheetBg" onclick="if (event.target === this) closeSheet()"><div class="sheet" id="sheet"></div></div>
 <div id="pinGate">
   <div class="pin-card">
-    <div class="pin-title">Strutynski Landscaping</div>
+    <img src="banner.png" alt="Strutynski Landscaping" style="width:100%;max-width:300px;height:auto;margin:0 auto 6px;display:block" onerror="this.outerHTML='<div class=&quot;pin-title&quot;>Strutynski Landscaping</div>'">
     <div class="muted" style="margin-bottom:18px">Enter your PIN</div>
     <input id="pinInput" class="input pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;" onkeydown="if (event.key === 'Enter') unlock()">
     <button class="btn gold big" style="margin-top:14px" onclick="unlock()">Unlock</button>
