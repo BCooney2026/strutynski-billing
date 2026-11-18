@@ -1,0 +1,1702 @@
+<!DOCTYPE html>
+<!--
+  Strutynski Landscaping Billing: the phone app (hosted on GitHub Pages).
+  Copyright (c) 2026 BAD Ventures Group. All rights reserved.
+  Licensed to Strutynski Landscaping for use in its own business only. Not to be copied,
+  modified, resold or reused without written permission from BAD Ventures Group.
+  Owner tabs:
+    Log       Mow List (one tap per lawn), or pick a property and tap what you did. Recent work below.
+    Money     What is owed, record cash / check / Venmo payments, open or resend invoice PDFs.
+    Dash      Heads up, send bills, money, mowing and season status, crew, customer accounts.
+    Settings  Prices, customers and their properties, crew, business info.
+  Crew PIN: the Log tab only, no money anywhere. Their "price varies" jobs come in unpriced and the
+  owner prices them before billing.
+  Backend: the Apps Script web app at API_URL (Code.gs doPost). Every request is
+  POST {pin, action, payload}. The PIN is asked once per device and kept in localStorage.
+  Requests send no cookies, so multiple signed-in Google accounts can never interfere.
+  Files in this folder: index.html, manifest.webmanifest, banner.png, apple-touch-icon.png, icon-192.png, icon-512.png
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Strutynski</title>
+<meta name="theme-color" content="#0b1710">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Strutynski">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b1710; --bg2: #102017; --card: #13261b; --card-hi: #1a3324;
+    --ink: #f3eedf; --muted: #a3b3a0; --line: rgba(212,176,106,.18); --line-soft: rgba(255,255,255,.07);
+    --brass: #d4b06a; --brass-deep: #a8823a;
+    --brass-grad: linear-gradient(180deg, #f1dca6 0%, #d4b06a 45%, #a8823a 100%);
+    --leaf: #8fd07c; --leaf-glow: rgba(143,208,124,.30);
+    --c-logged: #b9934a; --c-collected: #5fae5a;   /* chart series, checked on the card surface */
+    --red: #ff7b6b; --green: #8fd07c;
+    --display: 'Fraunces', Georgia, serif;
+    --body: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); }
+  body {
+    padding-bottom: 96px; min-height: 100vh;
+    background:
+      radial-gradient(1200px 500px at 50% -120px, rgba(143,208,124,.10), transparent 70%),
+      radial-gradient(900px 400px at 100% 100%, rgba(212,176,106,.07), transparent 70%),
+      var(--bg);
+  }
+  body.crew { padding-bottom: 30px; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  input, select, textarea { font-size: 16px; } /* 16px stops iOS from zooming on focus */
+
+  /* ---------- Hero banner: full image, never cropped; text wordmark until banner.png exists ---------- */
+  .hero { position: relative; text-align: center; padding: calc(8px + env(safe-area-inset-top)) 0 0; background: linear-gradient(170deg, #12281b, #0b1710 80%); }
+  .hero img { display: block; width: 100%; max-width: 960px; max-height: 320px; object-fit: contain; margin: 0 auto; }
+  .hero .word { display: none; padding: 46px 16px 26px; }
+  .hero.noimg img { display: none; }
+  .hero.noimg .word { display: block; }
+  .word .n { font-family: var(--display); font-weight: 800; font-size: 32px; letter-spacing: .5px; line-height: 1.05; background: var(--brass-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .word .t { margin-top: 8px; font-size: 11px; letter-spacing: 3.5px; color: var(--muted); font-weight: 700; }
+
+  main { padding: 14px 16px 0; max-width: 640px; margin: 0 auto; position: relative; }
+  .tab { display: none; animation: rise .35s ease both; }
+  .tab.on { display: block; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .lbl { font-family: var(--display); font-size: 13px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--brass); margin: 22px 2px 10px; display: flex; align-items: center; gap: 10px; }
+  .lbl::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
+  .card { background: linear-gradient(180deg, var(--card-hi), var(--card)); border-radius: 18px; padding: 16px; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04); }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .grow { flex: 1; min-width: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .warn { background: rgba(255,123,107,.1); border: 1px solid rgba(255,123,107,.3); color: #ffb9ae; border-radius: 14px; padding: 11px 13px; font-size: 14px; margin-top: 14px; }
+  .empty { text-align: center; color: var(--muted); padding: 18px 8px; font-size: 14px; }
+  .ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .stat { display: flex; justify-content: space-between; align-items: flex-end; }
+  .stat .k { font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .money-big { font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1.1; background: var(--brass-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .stat .when { font-weight: 800; font-size: 17px; color: var(--ink); }
+
+  /* ---------- Mow List ---------- */
+  .mow .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 4px; }
+  .mow .head b { font-family: var(--display); font-size: 19px; color: var(--ink); }
+  .mow-row { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+  .mow-row:last-child { border-bottom: 0; }
+  .mow-row .nm { font-weight: 800; font-size: 16px; }
+  .mow-row.done { opacity: .5; }
+  .mow-btn { border: 0; border-radius: 12px; padding: 12px 16px; font-weight: 900; font-size: 15px; background: var(--brass-grad); color: #1a1408; min-width: 92px; cursor: pointer; box-shadow: 0 4px 14px rgba(212,176,106,.25); }
+  .mow-btn.wait { background: rgba(255,255,255,.08); color: var(--muted); box-shadow: none; }
+  .skip-btn { border: 1px solid var(--line-soft); background: transparent; color: var(--muted); border-radius: 12px; padding: 11px 10px; font-weight: 700; font-size: 13px; cursor: pointer; }
+  .pill { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .5px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.07); color: var(--muted); vertical-align: 1px; }
+  .pill.late { background: rgba(255,123,107,.15); color: #ffaa9e; }
+  .pill.today { background: rgba(143,208,124,.15); color: var(--leaf); }
+  details.more > summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 13px; font-weight: 700; padding: 10px 0 2px; }
+  details.more > summary::-webkit-details-marker { display: none; }
+
+  /* ---------- Property picker ---------- */
+  .picker { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; padding: 15px 16px; border-radius: 16px; border: 1px solid var(--line); background: linear-gradient(180deg, var(--card-hi), var(--card)); cursor: pointer; transition: border-color .2s, box-shadow .2s; }
+  .picker.sel { border-color: var(--leaf); box-shadow: 0 0 0 1px var(--leaf) inset, 0 0 24px var(--leaf-glow); }
+  .picker .avatar { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; font-family: var(--display); font-weight: 800; color: #1a1408; background: var(--brass-grad); flex: none; font-size: 18px; }
+  .picker .avatar.empty { background: rgba(255,255,255,.06); color: var(--muted); border: 1px dashed rgba(255,255,255,.18); }
+  .picker .name { font-weight: 800; font-size: 17px; }
+  .picker .chev { color: var(--brass); font-size: 22px; }
+  .plist .opt { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 6px; border: 0; background: transparent; text-align: left; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
+  .plist .opt:last-child { border-bottom: 0; }
+  .plist .opt .nm { font-weight: 800; font-size: 16px; }
+  .plist .opt.on .nm { color: var(--leaf); }
+  .plist .tag { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+
+  /* ---------- Chips ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 9px; }
+  .chip { background: rgba(255,255,255,.035); border: 1px solid var(--line-soft); border-radius: 999px; padding: 11px 15px; font-weight: 700; font-size: 15px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; transition: all .15s; }
+  .chip .p { color: var(--muted); font-weight: 600; }
+  .chip.sel { border-color: var(--brass); background: rgba(212,176,106,.12); box-shadow: 0 0 18px rgba(212,176,106,.18); }
+  .chip.sel .p { color: var(--brass); }
+  .qty { display: inline-flex; align-items: center; gap: 7px; margin-left: 2px; font-weight: 800; }
+  .qty button { width: 30px; height: 30px; border-radius: 50%; border: 0; background: var(--brass-grad); color: #1a1408; font-weight: 800; font-size: 17px; line-height: 30px; padding: 0; display: grid; place-items: center; cursor: pointer; }
+  .qty .n { min-width: 14px; text-align: center; color: var(--brass); }
+
+  /* ---------- Forms ---------- */
+  .field { display: block; margin-bottom: 13px; }
+  .field span { display: block; font-size: 12px; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; font-weight: 700; }
+  .input { width: 100%; border: 1px solid var(--line-soft); border-radius: 12px; padding: 13px 14px; background: rgba(0,0,0,.25); color: var(--ink); }
+  .input:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(143,208,124,.15); }
+  textarea.input { min-height: 70px; resize: vertical; }
+  select.input { appearance: none; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+
+  /* ---------- Buttons ---------- */
+  .btn { border: 0; border-radius: 13px; padding: 12px 16px; font-weight: 800; font-size: 15px; background: rgba(255,255,255,.07); cursor: pointer; }
+  .btn.gold { background: var(--brass-grad); color: #1a1408; box-shadow: 0 6px 20px rgba(212,176,106,.25), inset 0 1px 0 rgba(255,255,255,.5); }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  .btn.danger { background: transparent; color: var(--red); border: 1px solid rgba(255,123,107,.35); }
+  .btn.sm { padding: 8px 13px; font-size: 13px; border-radius: 10px; }
+  .btn.big { width: 100%; padding: 18px; font-size: 18px; margin-top: 20px; border-radius: 16px; letter-spacing: .3px; }
+  .btn:disabled { opacity: .35; box-shadow: none; filter: grayscale(.6); }
+  a.btn { text-decoration: none; display: inline-block; }
+  .link { background: none; border: 0; color: var(--muted); text-decoration: underline; font-size: 13px; cursor: pointer; padding: 6px; }
+
+  /* ---------- Money ---------- */
+  .vault { text-align: center; padding: 22px 16px; background: radial-gradient(400px 160px at 50% 0%, rgba(143,208,124,.13), transparent 70%), linear-gradient(180deg, var(--card-hi), var(--card)); }
+  .vault .money-big { font-size: 46px; }
+  .list .item { padding: 14px 0; border-bottom: 1px solid var(--line-soft); }
+  .list .item:last-child { border-bottom: 0; }
+  .amt { font-weight: 800; white-space: nowrap; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.07); color: var(--muted); margin-top: 4px; }
+  .badge.late { background: rgba(255,123,107,.14); color: #ffaa9e; }
+  .badge.ok { background: rgba(143,208,124,.14); color: var(--green); }
+  .badge.hand { background: rgba(212,176,106,.14); color: var(--brass); }
+  .card.nudge { margin-top: 14px; padding: 16px 18px; border: 1px solid rgba(212,176,106,.45); }
+  .card.nudge.red { border-color: rgba(255,123,107,.45); }
+  .nudge h4 { margin: 0 0 4px; font-family: var(--display); font-size: 18px; color: var(--brass); }
+  .nudge.red h4 { color: #ffaa9e; }
+  .nudge .item { padding: 12px 0; }
+  .intro { margin: 2px 4px 14px; padding-left: 12px; border-left: 3px solid var(--brass); color: var(--muted); font-size: 14px; line-height: 1.45; }
+  .intro b { color: var(--ink); }
+  .actions { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
+
+  .seg { display: flex; background: rgba(0,0,0,.3); border-radius: 13px; padding: 4px; border: 1px solid var(--line-soft); flex-wrap: wrap; }
+  .seg button { flex: 1; border: 0; background: transparent; padding: 11px 8px; border-radius: 10px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+  .seg button.on { background: var(--brass-grad); color: #1a1408; }
+
+  .switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 12px; }
+  .switch input { width: 22px; height: 22px; accent-color: var(--brass); }
+  .item.tap { cursor: pointer; }
+  .sub-props { margin: 6px 0 0 2px; }
+  .sub-props div { font-size: 13px; color: var(--muted); padding: 2px 0; }
+
+  /* ---------- Bottom nav ---------- */
+  nav.tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; gap: 6px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: rgba(11,23,16,.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top: 1px solid var(--line); }
+  nav.tabs button { flex: 1; border: 0; background: transparent; padding: 8px 4px; border-radius: 14px; font-weight: 800; font-size: 12px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  nav.tabs button .ic { font-size: 20px; line-height: 1; }
+  nav.tabs button.on { color: var(--brass); background: rgba(212,176,106,.09); }
+  body.crew nav.tabs { display: none; }
+
+  /* ---------- Help, sheets, toast ---------- */
+  .help-btn { position: fixed; top: calc(10px + env(safe-area-inset-top)); right: 12px; z-index: 11; height: 38px; padding: 0 14px 0 10px; border-radius: 999px;
+              border: 1px solid rgba(212,176,106,.55); background: rgba(11,23,16,.78); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+              color: var(--brass); font-weight: 800; font-size: 14px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .help-btn .q { width: 22px; height: 22px; border-radius: 50%; background: var(--brass); color: #1a1408; display: grid; place-items: center; font-size: 14px; font-weight: 900; }
+  .help-item { border-top: 1px solid var(--line-soft); }
+  .help-item:first-child { border-top: 0; }
+  .help-item summary { list-style: none; padding: 14px 2px; font-weight: 800; cursor: pointer; display: flex; gap: 10px; align-items: flex-start; }
+  .help-item summary::-webkit-details-marker { display: none; }
+  .help-item summary::after { content: '+'; margin-left: auto; color: var(--brass); font-size: 20px; line-height: 1; }
+  .help-item[open] summary::after { content: '\2212'; }
+  .help-item .a { padding: 0 2px 16px; color: var(--muted); line-height: 1.55; font-size: 14.5px; }
+  .help-item .a b { color: var(--ink); }
+  .tip-card { text-align: center; padding: 6px 4px 2px; }
+  .tip-card .k { font-family: var(--display); font-size: 13px; letter-spacing: 3px; color: var(--leaf); margin-bottom: 10px; }
+  .tip-card .t { font-size: 16px; line-height: 1.55; color: var(--ink); text-align: left; }
+  .tip-card .t b { color: var(--brass); }
+  .sheet-bg { position: fixed; inset: 0; background: rgba(3,8,5,.65); backdrop-filter: blur(3px); z-index: 20; display: none; align-items: flex-end; justify-content: center; }
+  .sheet-bg.on { display: flex; }
+  .sheet { background: linear-gradient(180deg, #17301f, var(--bg2)); border: 1px solid var(--line); border-bottom: 0; width: 100%; max-width: 640px; max-height: 88vh; overflow: auto; border-radius: 24px 24px 0 0; padding: 10px 18px calc(22px + env(safe-area-inset-bottom)); animation: up .25s ease both; }
+  .sheet::before { content: ''; display: block; width: 44px; height: 5px; border-radius: 3px; background: rgba(255,255,255,.18); margin: 0 auto 14px; }
+  .sheet h3 { margin: 0 0 14px; font-family: var(--display); font-size: 22px; color: var(--brass); }
+  @keyframes up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  #toast { position: fixed; left: 50%; bottom: 104px; transform: translateX(-50%) translateY(20px); background: var(--brass-grad); color: #1a1408; padding: 12px 18px; border-radius: 14px; font-weight: 800; font-size: 14px; opacity: 0; transition: all .25s; z-index: 40; max-width: 90vw; text-align: center; pointer-events: none; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+  #toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.err { background: var(--red); color: #fff; }
+  #busy { position: fixed; inset: 0; background: rgba(11,23,16,.45); z-index: 30; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; }
+  #busy.on { display: flex; }
+  #busy .ring { width: 46px; height: 46px; border-radius: 50%; border: 3px solid rgba(212,176,106,.2); border-top-color: var(--brass); animation: spin .8s linear infinite; }
+  #busyMsg { font-weight: 800; color: var(--brass); letter-spacing: .4px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  textarea.note-box { min-height: 130px; line-height: 1.5; }
+  .note-box::placeholder { color: rgba(163,179,160,.55); }
+  .last-note { margin: 0 0 10px; padding: 11px 13px; border-radius: 12px; background: rgba(143,208,124,.07); border: 1px solid rgba(143,208,124,.22); font-size: 14px; line-height: 1.45; }
+  .last-note .t { white-space: pre-wrap; }
+  .last-note .k { font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--leaf); margin-bottom: 3px; }
+
+  #pinGate { position: fixed; inset: 0; z-index: 25; display: none; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(600px 300px at 50% 20%, rgba(143,208,124,.12), transparent 70%), rgba(11,23,16,.96); }
+  #pinGate.on { display: flex; }
+  .pin-card { width: 100%; max-width: 360px; text-align: center; }
+  .pin-title { font-family: var(--display); font-weight: 800; font-size: 28px; margin-bottom: 6px; background: var(--brass-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .pin-input { text-align: center; font-size: 28px !important; letter-spacing: 10px; padding: 16px; }
+  .pin-msg { color: #ffaa9e; font-weight: 700; margin-top: 12px; min-height: 20px; }
+
+  /* ---------- Dashboard ---------- */
+  .dash-head { display: flex; align-items: flex-end; justify-content: space-between; margin: 6px 2px 4px; }
+  .dash-hi { font-family: var(--display); font-size: 24px; font-weight: 800; background: var(--brass-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .stale { opacity: .45; transition: opacity .2s; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile { background: linear-gradient(180deg, var(--card-hi), var(--card)); border: 1px solid var(--line); border-radius: 16px; padding: 13px 14px; }
+  .tile .k { font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .tile .v { font-size: 24px; font-weight: 800; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .tile.wide { grid-column: 1 / -1; }
+  .heads { list-style: none; margin: 0; padding: 0; }
+  .heads li { display: flex; gap: 10px; align-items: flex-start; padding: 11px 0; border-bottom: 1px solid var(--line-soft); font-size: 14px; }
+  .heads li:last-child { border-bottom: 0; }
+  .heads .ic { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 900; }
+  .ic.fix { background: rgba(255,123,107,.18); color: #ffaa9e; } .ic.watch { background: rgba(212,176,106,.18); color: var(--brass); } .ic.good { background: rgba(143,208,124,.16); color: var(--green); }
+  .chart-wrap { position: relative; margin-top: 6px; }
+  .chart-wrap svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart-wrap .hit { fill: transparent; cursor: pointer; outline: none; }
+  .chart-wrap .hit.on { fill: rgba(255,255,255,.05); }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .tip { position: absolute; top: -6px; transform: translate(-50%, -100%); background: #102017; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12px; pointer-events: none; white-space: nowrap; box-shadow: 0 8px 20px rgba(0,0,0,.4); display: none; }
+  .tip b { display: block; color: var(--ink); font-size: 13px; }
+  .tip .ln { display: inline-block; width: 12px; height: 2px; margin-right: 6px; vertical-align: middle; }
+  details.nums summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 10px; }
+  table.nums { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  table.nums td, table.nums th { padding: 6px 4px; text-align: right; border-top: 1px solid var(--line-soft); }
+  table.nums th { color: var(--muted); font-size: 11px; font-weight: 800; }
+  table.nums td:first-child, table.nums th:first-child { text-align: left; }
+  .hbar { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 14px; }
+  .hbar .n { width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar .track { flex: 1; height: 8px; border-radius: 4px; background: rgba(255,255,255,.05); }
+  .hbar .fill { height: 8px; border-radius: 4px; background: var(--c-logged); }
+  .hbar .a { width: 64px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stlabel { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .stlabel.fix { background: rgba(255,123,107,.15); color: #ffaa9e; } .stlabel.watch { background: rgba(212,176,106,.16); color: var(--brass); } .stlabel.good { background: rgba(143,208,124,.14); color: var(--green); } .stlabel.none { background: rgba(255,255,255,.06); color: var(--muted); }
+  .sysgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .sysgrid div { padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+  .sysgrid div span { display: block; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 2px; }
+  .acct { cursor: pointer; }
+  .acct .chev { color: var(--brass); font-size: 20px; margin-left: 4px; }
+  details.fold { margin-top: 10px; }
+  details.fold > summary { list-style: none; cursor: pointer; }
+  details.fold > summary::-webkit-details-marker { display: none; }
+  details.fold > summary .chev { transition: transform .2s; display: inline-block; color: var(--brass); font-size: 20px; }
+  details.fold[open] > summary .chev { transform: rotate(90deg); }
+  .oc { font-size: 11px; font-weight: 800; padding: 3px 7px; border-radius: 999px; background: rgba(255,255,255,.06); color: var(--muted); margin-left: 3px; white-space: nowrap; }
+  .oc.yes { background: rgba(143,208,124,.14); color: var(--green); }
+  .sec { font-family: var(--display); font-size: 13px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--brass); margin: 18px 2px 8px; }
+  .pick { display: flex; align-items: flex-start; gap: 12px; padding: 12px 2px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
+  .pick:last-child { border-bottom: 0; }
+  .pick input { width: 22px; height: 22px; accent-color: var(--brass); flex: none; margin-top: 1px; }
+  .pick .x { background: transparent; border: 0; color: var(--red); font-size: 18px; font-weight: 800; padding: 4px 2px 4px 10px; cursor: pointer; }
+  .grp { font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--leaf); padding: 12px 2px 2px; }
+
+  .tagline { text-align: center; margin: 28px 0 8px; font-family: var(--display); font-size: 11px; letter-spacing: 3px; color: rgba(212,176,106,.55); }
+</style>
+</head>
+<body>
+
+<button class="help-btn" onclick="openHelp()" aria-label="Help"><span class="q">?</span>Help</button>
+<div class="hero" id="hero">
+  <img src="banner.png" alt="Strutynski Landscaping" onerror="document.getElementById('hero').classList.add('noimg')">
+  <div class="word"><div class="n">Strutynski Landscaping</div><div class="t">MOWING &bull; CLEAN UPS &bull; MULCHING &bull; GARDENING</div></div>
+</div>
+
+<main>
+  <section id="tab-log" class="tab on"><div class="empty">Loading...</div></section>
+  <section id="tab-money" class="tab"></section>
+  <section id="tab-settings" class="tab"></section>
+  <section id="tab-dash" class="tab"></section>
+  <div class="tagline">MOWING &bull; CLEAN UPS &bull; MULCHING &bull; GARDENING</div>
+</main>
+
+<nav class="tabs">
+  <button data-tab="log" class="on" onclick="showTab('log')"><span class="ic">&#9998;</span>Log</button>
+  <button data-tab="money" onclick="showTab('money')"><span class="ic">$</span>Money</button>
+  <button data-tab="dash" onclick="showTab('dash')"><span class="ic">&#9672;</span>Dash</button>
+  <button data-tab="settings" onclick="showTab('settings')"><span class="ic">&#9881;</span>Settings</button>
+</nav>
+
+<div class="sheet-bg" id="sheetBg" onclick="if (event.target === this) closeSheet()"><div class="sheet" id="sheet"></div></div>
+<div id="pinGate">
+  <div class="pin-card">
+    <div class="pin-title">Strutynski Landscaping</div>
+    <div class="muted" style="margin-bottom:18px">Enter your PIN</div>
+    <input id="pinInput" class="input pin-input" type="password" inputmode="numeric" autocomplete="off" maxlength="12" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;" onkeydown="if (event.key === 'Enter') unlock()">
+    <button class="btn gold big" style="margin-top:14px" onclick="unlock()">Unlock</button>
+    <div id="pinMsg" class="pin-msg"></div>
+  </div>
+</div>
+<div id="busy"><div class="ring"></div><div id="busyMsg"></div></div>
+<div id="toast"></div>
+
+<script>
+  // ---------------- State ----------------
+  const S = {
+    data: null,
+    tab: 'log',
+    date: '',
+    propertyId: '',
+    items: {},      // itemId -> qty
+    itemPrice: {},  // itemId -> price typed this time, for "price varies" items
+    custom: null,   // { description, price } when "+ Other" is open (owner)
+    credit: null,   // { description, price } when "- Credit" is open (owner)
+    note: '',
+    doneBy: '',     // owner only: who did it (owner or a crew name)
+    payMethod: 'Cash',
+    busy: false,
+    pin: '',
+    mowPending: {}, // propertyId -> true while a Mow List tap is in flight
+    inflight: 0,
+  };
+
+  // ---------------- Helpers ----------------
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const money = n => { const v = Number(n) || 0; return (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); };
+  const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
+  const initials = name => String(name || '').replace(/^\d+\s*/, '').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase() || '#';
+  function niceDate(ymd) {
+    if (!ymd) return '';
+    const [y, m, d] = ymd.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  const ymdDate = ymd => { const [y, m, d] = ymd.split('-').map(Number); return new Date(y, m - 1, d); };
+  const toYmd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const daysSince = ymd => ymd ? Math.round((ymdDate(S.data.today) - ymdDate(ymd)) / 86400000) : null;
+  const priceById = id => S.data.prices.find(p => p.id === id);
+  const propById = id => S.data.properties.find(p => p.id === id);
+  const custById = id => (S.data.customers || []).find(c => c.id === id);
+  const byLabel = (a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base', numeric: true });
+  const byName = (a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+  const owner = () => S.data && S.data.role === 'owner';
+  const hasCrew = () => (S.data.crewNames || []).length > 0;
+  const plural = (n, word) => n + ' ' + (n === 1 ? word : /[^aeiou]y$/.test(word) ? word.slice(0, -1) + 'ies' : word + 's');
+  const MOWING = 'MOWING';
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const isMowService = p => p.service === 'Weekly' || p.service === 'Every 2 weeks';
+
+  // ---------------- PIN ----------------
+  const PIN_KEY = 'strutynskiPin';
+  function loadPin() { try { return localStorage.getItem(PIN_KEY) || ''; } catch (e) { return ''; } }
+  function savePin(pin) { try { localStorage.setItem(PIN_KEY, pin); } catch (e) {} }
+  function forgetPin() { try { localStorage.removeItem(PIN_KEY); } catch (e) {} }
+  function signOut() { if (!confirm('Sign out of this phone? You will need the PIN to get back in.')) return; forgetPin(); location.reload(); }
+
+  // ---------------- Backend ----------------
+  // The Apps Script web app URL (Deploy > Manage deployments, ends in /exec). Clean /macros/s/ form only, never /u/N/.
+  const API_URL = 'https://script.google.com/macros/s/AKfycbwvW8Zr7KBMxI2NwnKt-O4u0KGYVLQbJOnvKIUc1VUjQuX46WgXCriBWudXwmDrCfweHw/exec';
+
+  /**
+   * Every server call: POST {pin, action, payload} to API_URL, get back {ok, data | error}.
+   * text/plain avoids a CORS preflight; credentials 'omit' keeps Google sign-ins out of it.
+   */
+  async function call(action, payload) {
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(API_URL)) throw new Error('App is not connected yet (API_URL not set).');
+    let res;
+    try {
+      res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ pin: S.pin, action, payload }),
+        credentials: 'omit',
+        redirect: 'follow',
+      });
+    } catch (e) {
+      throw new Error('No connection. Check your signal and try again.');
+    }
+    let body;
+    try { body = await res.json(); } catch (e) { throw new Error('Server hiccup. Try again in a moment.'); }
+    if (!body.ok) {
+      if (body.error === 'WRONG_PIN') { S.pin = ''; forgetPin(); showPinScreen('That PIN did not work.'); }
+      throw new Error(body.error || 'Something went wrong.');
+    }
+    return body.data;
+  }
+
+  function showPinScreen(msg) {
+    $('pinGate').classList.add('on');
+    $('pinMsg').textContent = msg || '';
+    $('pinInput').value = '';
+    setTimeout(() => $('pinInput').focus(), 50);
+  }
+
+  async function unlock() {
+    const pin = $('pinInput').value.trim();
+    if (!pin) return;
+    S.pin = pin;
+    $('pinMsg').textContent = '';
+    if (await run('bootstrap')) {
+      savePin(pin);
+      $('pinGate').classList.remove('on');
+      afterBoot();
+    } else if (!$('pinGate').classList.contains('on')) {
+      showPinScreen('Could not connect. Try again.');
+    }
+  }
+
+  /** Runs a server call, redraws on success, toasts on error. Returns true on success. */
+  async function run(action, payload, okMsg) {
+    if (S.busy) return false;
+    setBusy(true);
+    try {
+      const data = await call(action, payload);
+      if (data && data.properties) setData(data);
+      if (okMsg) toast(okMsg);
+      return true;
+    } catch (e) {
+      if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function setData(data) {
+    S.data = data;
+    document.body.classList.toggle('crew', data.role !== 'owner');
+    if (data.role !== 'owner' && S.tab !== 'log') showTab('log');
+    render();
+  }
+
+  function setBusy(on, msg) { S.busy = on; $('busy').classList.toggle('on', on); $('busyMsg').textContent = on ? (msg || '') : ''; }
+  let toastTimer;
+  function toast(msg, isErr) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.toggle('err', !!isErr);
+    t.classList.add('on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('on'), isErr ? 4200 : 2400);
+  }
+  function openSheet(html) { $('sheet').innerHTML = html; $('sheetBg').classList.add('on'); $('sheet').scrollTop = 0; }
+  function closeSheet() { $('sheetBg').classList.remove('on'); }
+
+  function showTab(tab) {
+    S.tab = tab;
+    document.querySelectorAll('.tab').forEach(el => el.classList.toggle('on', el.id === 'tab-' + tab));
+    document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+    window.scrollTo(0, 0);
+    if (tab === 'dash') loadDash();
+  }
+
+  // ---------------- Render ----------------
+  function render() {
+    if (!S.date) S.date = S.data.today;
+    if (!S.doneBy) S.doneBy = S.data.user;
+    renderLog();
+    if (owner()) { renderMoney(); renderSettings(); }
+  }
+
+  // =====================================================================
+  // Log tab
+  // =====================================================================
+
+  /** The price the server will charge for an item at the picked property, or 0 when it varies. */
+  function fixedPrice(id) {
+    const p = priceById(id);
+    if (!p) return 0;
+    const prop = propById(S.propertyId);
+    if (id === MOWING && prop && prop.mowRate > 0) return prop.mowRate;
+    return p.price || 0;
+  }
+  const varies = id => !(fixedPrice(id) > 0);
+  function unitPrice(id) { return varies(id) ? (Number(S.itemPrice[id]) || 0) : fixedPrice(id); }
+
+  /** Ready to log: a property, something picked, and (owner) a price on every "price varies" item. */
+  function canLogNow() {
+    if (!S.propertyId) return false;
+    if (!(Object.keys(S.items).length || S.custom || S.credit)) return false;
+    if (!owner()) return true;
+    return Object.keys(S.items).every(id => unitPrice(id) > 0);
+  }
+
+  function logTotal() {
+    let t = 0;
+    Object.keys(S.items).forEach(id => { t += unitPrice(id) * S.items[id]; });
+    if (S.custom) t += Number(S.custom.price) || 0;
+    if (S.credit) t -= Math.abs(Number(S.credit.price) || 0);
+    return t;
+  }
+
+  function renderLog() {
+    const d = S.data;
+    const own = owner();
+    const prop = S.propertyId ? propById(S.propertyId) : null;
+    const anyProps = d.properties.some(p => p.active);
+    const lastNote = S.propertyId && d.lastNotes ? d.lastNotes[S.propertyId] : null;
+    const choices = d.prices.filter(p => p.active).sort((a, b) => a.sort - b.sort);
+
+    const chip = p => {
+      const sel = S.items[p.id];
+      const priceTag = !own ? '' : varies(p.id) ? (sel && S.itemPrice[p.id] ? money(S.itemPrice[p.id]) : 'price?') : money(fixedPrice(p.id));
+      const qty = sel && p.id !== MOWING
+        ? `<span class="qty"><button onclick="event.stopPropagation(); bump('${p.id}', -1)">&minus;</button><span class="n">${sel}</span><button onclick="event.stopPropagation(); bump('${p.id}', 1)">+</button></span>`
+        : '';
+      // A div, not a button: the +/- stepper buttons live inside it, and buttons cannot nest.
+      return `<div class="chip ${sel ? 'sel' : ''}" role="button" tabindex="0" onclick="toggleItem('${p.id}')">
+        ${esc(p.name)}${priceTag ? ` <span class="p">${priceTag}</span>` : ''}${qty}</div>`;
+    };
+    const people = [d.user].concat(d.crewNames || []);
+
+    $('tab-log').innerHTML = `
+      ${intro(own ? 'log' : 'crew')}
+      ${own ? `
+      <div class="card stat">
+        <div><div class="k">Logged, not billed</div><div class="money-big">${money(d.unbilledTotal)}</div></div>
+        <div style="text-align:right"><div class="k">Bill day</div><div class="when">${niceDate(d.nextBilling)}</div></div>
+      </div>
+      ${readyCard('log')}
+      ${unpricedCard()}
+      ${lateCard()}` : `<div class="muted" style="margin:0 2px">Signed in as <b style="color:var(--ink)">${esc(d.user)}</b></div>`}
+
+      ${mowCard()}
+
+      <div class="lbl">Where</div>
+      ${anyProps ? `
+        <button class="picker ${prop ? 'sel' : ''}" onclick="openPropertyPicker()">
+          <div class="avatar ${prop ? '' : 'empty'}">${prop ? esc(initials(prop.label)) : '?'}</div>
+          <div class="grow">
+            <div class="name ell">${prop ? esc(prop.label) : 'Choose a property'}</div>
+            <div class="muted ell">${prop ? esc(prop.customerName) + ' &middot; ' + esc(prop.service) + (own && prop.mowRate ? ' &middot; mow ' + money(prop.mowRate) : '') : 'Tap to search your properties'}</div>
+          </div>
+          <div class="chev">&#9662;</div>
+        </button>`
+        : `<div class="card empty">${own ? 'No properties yet. Add a customer in Settings.' : 'No properties yet. Ask the owner to add them.'}</div>`}
+
+      ${own && hasCrew() ? `
+        <div class="lbl">Done by</div>
+        <div class="seg">${people.map(n => `<button class="${S.doneBy === n ? 'on' : ''}" onclick="S.doneBy = this.dataset.n; renderLog()" data-n="${esc(n)}">${esc(n)}</button>`).join('')}</div>` : ''}
+
+      <div class="lbl">When</div>
+      <input type="date" class="input" value="${S.date}" max="${d.today}" onchange="S.date = this.value">
+
+      <div class="lbl">What</div>
+      <div class="chips">
+        ${choices.map(chip).join('')}
+        ${own ? `<button class="chip ${S.custom ? 'sel' : ''}" onclick="toggleCustom()">+ Other</button>
+        <button class="chip ${S.credit ? 'sel' : ''}" onclick="toggleCredit()">&minus; Credit</button>` : ''}
+      </div>
+      ${own ? Object.keys(S.items).filter(varies).map(id => {
+        const p = priceById(id), q = S.items[id];
+        return `
+        <div class="card" style="margin-top:12px">
+          <label class="field" style="margin:0"><span>${esc(p.name)}: price ${q > 1 ? 'each ' : ''}this time</span>
+            <input class="input" id="vp_${id}" type="number" inputmode="decimal" step="0.01" value="${esc(S.itemPrice[id] || '')}" placeholder="0.00"
+              oninput="S.itemPrice['${id}'] = this.value; updateLogButton()"></label>
+          ${id === MOWING && prop ? `<div class="muted" style="margin-top:8px;font-size:12px">Tip: set a mowing rate on ${esc(prop.label)} (Settings) and this box goes away.</div>` : ''}
+          ${q > 1 ? `<div class="muted" style="margin-top:6px">${q} x price each</div>` : ''}
+        </div>`;
+      }).join('') : ''}
+      ${!own && Object.keys(S.items).length ? '<div class="muted" style="margin:10px 2px 0">The office sets the price. Just log what you did.</div>' : ''}
+      ${S.custom ? `
+        <div class="card" style="margin-top:12px">
+          ${(d.otherSuggestions || []).length ? `
+            <div class="muted" style="margin-bottom:8px">Tap one you've done before:</div>
+            <div class="chips" style="margin-bottom:14px">
+              ${d.otherSuggestions.map((o, i) => `<div class="chip ${S.custom.description === o.description && Number(S.custom.price) === o.price ? 'sel' : ''}" role="button" tabindex="0" onclick="pickOther(${i})">${esc(o.description)} <span class="p">${money(o.price)}</span></div>`).join('')}
+            </div>
+            <div class="muted" style="margin-bottom:8px">Or something new:</div>` : ''}
+          <label class="field"><span>What was it?</span>
+            <input class="input" id="customDesc" value="${esc(S.custom.description)}" placeholder="Fall trim + clean out, tree removal..." oninput="S.custom.description = this.value"></label>
+          <label class="field" style="margin:0"><span>Charge</span>
+            <input class="input" id="customPrice" type="number" inputmode="decimal" step="0.01" value="${esc(S.custom.price)}" placeholder="0.00" oninput="S.custom.price = this.value; updateLogButton()"></label>
+        </div>` : ''}
+      ${S.credit ? `
+        <div class="card" style="margin-top:12px">
+          <label class="field"><span>Amount off</span>
+            <input class="input" id="creditPrice" type="number" inputmode="decimal" step="0.01" min="0" value="${esc(S.credit.price)}" placeholder="$ off" oninput="S.credit.price = this.value; updateLogButton()"></label>
+          <label class="field" style="margin:0"><span>Why? (optional)</span>
+            <input class="input" id="creditDesc" value="${esc(S.credit.description)}" placeholder="Discount, trade, rain skip..." oninput="S.credit.description = this.value"></label>
+          <div class="muted" style="margin-top:8px">Comes off this customer's next bill (before tax).</div>
+        </div>` : ''}
+
+      <div class="lbl">Job notes</div>
+      ${lastNote ? `
+        <div class="last-note">
+          <div class="k">Last note &middot; ${niceDate(lastNote.date)}${lastNote.by ? ' &middot; ' + esc(lastNote.by) : ''}</div>
+          <div class="t">${esc(lastNote.note)}</div>
+        </div>` : ''}
+      <textarea class="input note-box" placeholder="${NOTE_HINT}" oninput="S.note = this.value">${esc(S.note)}</textarea>
+      <div class="muted" style="margin:6px 2px 0">Private. Notes never print on bills. Tap the mic on the keyboard to talk.</div>
+
+      <button class="btn gold big" id="logBtn" ${canLogNow() ? '' : 'disabled'} onclick="logWork()">${logButtonText(canLogNow())}</button>
+
+      <div class="lbl">${own ? 'Recent' : 'Your recent work'}</div>
+      <div class="card list">${d.recent.length ? d.recent.map((j, i) => `
+        <div class="item row">
+          <div class="grow" role="button" tabindex="0" style="cursor:pointer" onclick="openJob(${i})">
+            <div style="font-weight:800" class="ell">${esc(j.propertyLabel)} <span style="color:var(--brass)">&rsaquo;</span></div>
+            <div class="muted">${niceDate(j.date)}${own && j.customerName !== j.propertyLabel ? ' &middot; ' + esc(j.customerName) : ''}${hasCrew() && j.doneBy ? ' &middot; ' + esc(j.doneBy) : ''}</div>
+            <div class="muted">${esc(j.items)}</div>
+          </div>
+          <div style="text-align:right">
+            ${own ? `<div class="amt">${j.unpriced ? '<span class="badge late">Needs price</span>' : money(j.amount)}</div>` : ''}
+            ${own && j.invoiceIds.length ? jobBadge(j) : ''}
+            ${j.billed !== 'all' ? `<div><button class="btn danger sm" style="margin-top:6px" onclick="voidJob(${i})">Remove</button></div>` : ''}
+          </div>
+        </div>`).join('') : '<div class="empty">Nothing logged yet.</div>'}
+      </div>
+      ${!own ? '<div style="text-align:center;margin-top:14px"><button class="link" onclick="signOut()">Not you? Sign out</button></div>' : ''}`;
+  }
+
+  const NOTE_HINT = ['Gate code 1234, dog in back', 'Back corner wet, skipped it', 'Customer wants hedges lower next time', 'Next week: bring the blower'].join('&#10;');
+  const logButtonText = ok => ok ? (owner() ? 'Log it  ' + money(logTotal()) : 'Log it') : 'Log it';
+
+  function updateLogButton() {
+    const ok = canLogNow();
+    $('logBtn').disabled = !ok;
+    $('logBtn').textContent = logButtonText(ok);
+  }
+
+  // ----- Mow List: weekly and every-2-weeks lawns not mowed yet, one tap each -----
+  const SKIP_KEY = 'st_mow_skips';
+  function skips() { try { const all = JSON.parse(localStorage.getItem(SKIP_KEY) || '{}'); return all.day === S.data.today ? all.ids || {} : {}; } catch (e) { return {}; } }
+  function skipMow(id) {
+    const ids = skips(); ids[id] = true;
+    try { localStorage.setItem(SKIP_KEY, JSON.stringify({ day: S.data.today, ids })); } catch (e) { /* no storage: it just stays */ }
+    renderLog();
+  }
+
+  /** Is a lawn due? Weekly: not mowed since Monday. Every 2 weeks: 13+ days since the last mow. */
+  function mowDue(p) {
+    if (p.service === 'Weekly') {
+      const t = ymdDate(S.data.today);
+      const monday = new Date(t); monday.setDate(t.getDate() - ((t.getDay() + 6) % 7));
+      return !p.lastMow || p.lastMow < toYmd(monday);
+    }
+    const n = daysSince(p.lastMow);
+    return n === null || n >= 13;
+  }
+
+  function inMowSeason() {
+    const m = ymdDate(S.data.today).getMonth() + 1;
+    const [a, b] = S.data.mowSeason || [4, 11];
+    return a <= b ? m >= a && m <= b : m >= a || m <= b;
+  }
+
+  /** Lawns grouped for today: today's mow day, then behind (earlier day or no day), then later this week. */
+  function mowGroups() {
+    const t = ymdDate(S.data.today);
+    const todayName = DAYS[t.getDay()];
+    const todayIdx = (t.getDay() + 6) % 7; // Mon = 0
+    const sk = skips();
+    const lawns = S.data.properties.filter(p => p.active && isMowService(p));
+    const due = lawns.filter(p => mowDue(p) && !sk[p.id]).sort(byLabel);
+    const dayIdx = p => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.mowDay);
+    return {
+      today: due.filter(p => p.mowDay === todayName),
+      behind: due.filter(p => p.mowDay !== todayName && (dayIdx(p) < 0 || dayIdx(p) < todayIdx)),
+      later: due.filter(p => dayIdx(p) > todayIdx),
+      doneToday: lawns.filter(p => p.lastMow === S.data.today),
+      total: lawns.length,
+    };
+  }
+
+  function mowCard() {
+    if (!inMowSeason()) return '';
+    const g = mowGroups();
+    if (!g.total) return '';
+    const row = (p, tag) => {
+      const wait = S.mowPending[p.id];
+      const n = daysSince(p.lastMow);
+      const sub = [p.label !== p.customerName ? esc(p.customerName) : '', p.lastMow ? 'last ' + (n === 0 ? 'today' : n + 'd ago') : 'not mowed yet',
+        owner() && p.mowRate ? money(p.mowRate) : ''].filter(Boolean).join(' &middot; ');
+      return `<div class="mow-row">
+        <div class="grow"><div class="nm ell">${esc(p.label)} ${tag || ''}</div><div class="muted ell">${sub}</div></div>
+        ${wait ? '' : `<button class="skip-btn" onclick="skipMow('${p.id}')">Skip</button>`}
+        <button class="mow-btn ${wait ? 'wait' : ''}" ${wait ? 'disabled' : ''} onclick="quickMow('${p.id}')">${wait ? 'Saving' : '&#10003; Mowed'}</button>
+      </div>`;
+    };
+    const now = g.today.map(p => row(p, '<span class="pill today">Today</span>'))
+      .concat(g.behind.map(p => row(p, p.mowDay ? `<span class="pill late">${esc(p.mowDay)}</span>` : '')));
+    return `
+      <div class="lbl">Mow list</div>
+      <div class="card mow">
+        <div class="head"><b>${now.length ? plural(now.length, 'lawn') + ' to mow' : 'All caught up'}</b>
+          <span class="muted">${g.doneToday.length} done today</span></div>
+        ${now.length ? now.join('') : '<div class="muted" style="padding:6px 0">Nothing due right now. Nice work.</div>'}
+        ${g.later.length ? `<details class="more"><summary>Later this week: ${g.later.length} &rsaquo;</summary>${g.later.map(p => row(p, `<span class="pill">${esc(p.mowDay)}</span>`)).join('')}</details>` : ''}
+        <div class="muted" style="font-size:12px;margin-top:8px">Rain day? Tap Skip. It comes back tomorrow. Need to add trimming or a note? Pick the property below instead.</div>
+      </div>`;
+  }
+
+  /**
+   * One tap = mowing logged today at that lawn. Taps run in the background so you can tap the next lawn
+   * right away. The app redraws from the server once the last tap lands.
+   */
+  async function quickMow(id) {
+    const p = propById(id);
+    if (!p || S.mowPending[id]) return;
+    const m = priceById(MOWING);
+    if (!m || !m.active) { toast('Mowing is hidden in Settings > Prices.', true); return; }
+    if (owner() && !(p.mowRate > 0) && !(m.price > 0)) {
+      toast('No mowing rate for ' + p.label + ' yet. Type the price below, or set a rate in Settings.', true);
+      pickProperty(id); S.items = { MOWING: 1 }; S.date = S.data.today; renderLog();
+      $('vp_MOWING') && $('vp_MOWING').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    S.mowPending[id] = true; S.inflight++;
+    renderLog();
+    try {
+      const data = await call('logWork', { date: S.data.today, propertyId: id, items: [{ itemId: MOWING, qty: 1 }], note: '', doneBy: S.doneBy });
+      p.lastMow = S.data.today;
+      delete S.mowPending[id]; S.inflight--;
+      toast('Mowed: ' + p.label);
+      if (S.inflight === 0) setData(data); else renderLog();
+    } catch (e) {
+      delete S.mowPending[id]; S.inflight--;
+      if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true);
+      renderLog();
+    }
+  }
+
+  // ----- Property picker: search by street, customer, or label -----
+  function openPropertyPicker() {
+    openSheet(`
+      <h3>Choose a property</h3>
+      <input class="input" id="propQ" type="search" placeholder="Search street or customer" oninput="drawPropList(this.value)" style="margin-bottom:6px" autocomplete="off">
+      <div class="plist" id="propList"></div>`);
+    drawPropList('');
+    if (S.data.properties.length > 12) setTimeout(() => $('propQ') && $('propQ').focus(), 80);
+  }
+
+  function drawPropList(q) {
+    const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    const hit = p => words.every(w => (p.label + ' ' + p.address + ' ' + p.customerName).toLowerCase().indexOf(w) >= 0);
+    const list = S.data.properties.filter(p => p.active && hit(p));
+    const mowers = list.filter(isMowService).sort(byLabel), jobs = list.filter(p => !isMowService(p)).sort(byLabel);
+    const opt = p => `
+      <button class="opt ${S.propertyId === p.id ? 'on' : ''}" onclick="pickProperty('${p.id}'); closeSheet(); renderLog()">
+        <span class="grow" style="min-width:0"><span class="nm ell" style="display:block">${esc(p.label)}</span><span class="muted ell" style="display:block">${esc(p.customerName)}</span></span>
+        <span class="tag">${p.service === 'Jobs only' ? 'Jobs' : p.service === 'Weekly' ? 'Weekly' : '2 wks'}</span>
+      </button>`;
+    $('propList').innerHTML = (mowers.length ? '<div class="grp">Mowing</div>' + mowers.map(opt).join('') : '') +
+      (jobs.length ? '<div class="grp">Jobs only</div>' + jobs.map(opt).join('') : '') +
+      (list.length ? '' : '<div class="empty">No match. Check the spelling, or add it in Settings.</div>');
+  }
+
+  function pickProperty(id) {
+    S.propertyId = id;
+    const p = propById(id);
+    // Lawn customers default to Mowing so the common case is: pick property, Log it.
+    const m = priceById(MOWING);
+    if (p && isMowService(p) && !Object.keys(S.items).length && !S.custom && m && m.active) S.items = { MOWING: 1 };
+    Object.keys(S.items).forEach(k => { if (varies(k)) prefill(k); });
+  }
+
+  /** Fill a "price varies" box with what was charged last time at this property (or anywhere). */
+  function prefill(id) {
+    if (!owner() || S.itemPrice[id]) return;
+    const lp = S.data.lastPrices || {};
+    const last = lp[S.propertyId + '|' + id] || lp[id];
+    if (last > 0) S.itemPrice[id] = last.toFixed(2);
+  }
+
+  function toggleItem(id) {
+    if (S.items[id]) { delete S.items[id]; renderLog(); return; }
+    S.items[id] = 1;
+    if (varies(id)) prefill(id);
+    renderLog();
+    const box = $('vp_' + id);
+    if (box && !box.value) box.focus();
+  }
+
+  function bump(id, delta) {
+    const next = (S.items[id] || 0) + delta;
+    if (next <= 0) delete S.items[id]; else S.items[id] = Math.min(next, 999);
+    renderLog();
+  }
+
+  function pickOther(i) {
+    const o = S.data.otherSuggestions[i];
+    S.custom = { description: o.description, price: o.price };
+    renderLog();
+  }
+  function toggleCredit() { S.credit = S.credit ? null : { description: '', price: '' }; renderLog(); if (S.credit) $('creditPrice').focus(); }
+  function toggleCustom() { S.custom = S.custom ? null : { description: '', price: '' }; renderLog(); if (S.custom && !(S.data.otherSuggestions || []).length) $('customDesc').focus(); }
+
+  async function logWork() {
+    const prop = propById(S.propertyId);
+    const items = Object.keys(S.items).map(id => ({ itemId: id, qty: S.items[id], price: owner() && varies(id) ? Number(S.itemPrice[id]) || 0 : undefined }));
+    if (S.custom) items.push({ itemId: 'CUSTOM', description: S.custom.description, price: S.custom.price, qty: 1 });
+    if (S.credit) items.push({ itemId: 'CREDIT', description: S.credit.description, price: Math.abs(Number(S.credit.price) || 0), qty: 1 });
+    const total = logTotal();
+    const ok = await run('logWork', { date: S.date, propertyId: S.propertyId, items, note: S.note, doneBy: S.doneBy },
+      'Logged ' + (prop ? prop.label : '') + (owner() ? ': ' + money(total) : ''));
+    if (ok) {
+      const job = { custom: S.custom };
+      S.propertyId = ''; S.items = {}; S.itemPrice = {}; S.custom = null; S.credit = null; S.note = ''; S.date = S.data.today;
+      renderLog();
+      tipsAfterLog(job);
+    }
+  }
+
+  // ----- Help: keep these matched to how the app really works. who: 'all' or 'owner'. -----
+  const HELP = [
+    ['How do I use this thing? (start here)', '<b>Log</b>: tap <b>Mowed</b> on the Mow List for each lawn, or pick a property and tap what you did.<br><b>Money</b>: when someone pays, tap <b>Got paid</b>.<br><b>Dash</b>: on bill day you get an email, tap the gold button, then <b>Send bills</b>.<br>Nothing goes to a customer until you send it.', 'start basics routine', 'owner'],
+    ['How do I log my work? (crew start here)', 'Mowing: tap <b>Mowed</b> next to the lawn on the Mow List. Anything else: tap <b>Choose a property</b>, tap everything you did, add a note if needed, tap <b>Log it</b>. Made a mistake? Tap <b>Remove</b> under Your recent work.', 'crew start basics log', 'all'],
+    ['The Mow List', 'Every weekly lawn not mowed since Monday, and every every-2-weeks lawn not mowed in 13 days. Lawns with today as their mow day are on top, then anyone behind. Tap <b>Mowed</b> and it is logged for today. You can tap the next one right away.', 'mow list mowed weekly route', 'all'],
+    ['Rain day or a skip week', 'Tap <b>Skip</b> on the Mow List. It hides that lawn for today only on this phone, and it comes back tomorrow. Nothing is charged.', 'rain skip weather', 'all'],
+    ['Mowed on a different day', 'Do not use the Mow List for that. Pick the property, set the date under <b>When</b>, tap Mowing, Log it.', 'yesterday different day date', 'all'],
+    ['Mowing plus trimming or a note', 'Pick the property below the Mow List. Mowing is already picked for lawn customers. Tap the extras, add a note, Log it.', 'trim extras both', 'all'],
+    ['Did more than one of something?', 'Tap the item, then use <b>+</b> and <b>&minus;</b> on it (yards of mulch, bags, plants).', 'quantity mulch yards plants', 'all'],
+    ['Price changes every time', 'Leave that item\'s price blank in <b>Settings &gt; Prices</b>. When you tap it, a box asks the price, filled in with what you charged last time at that property.', 'price varies clean up', 'owner'],
+    ['Crew logged a job with no price', 'A red <b>Needs a price</b> card shows on Log. Tap it, type each price, Save. Bills skip unpriced lines until you do.', 'needs price crew unpriced', 'owner'],
+    ['Something not on the list', 'Tap <b>+ Other</b>. Tap one you have done before, or type a new one and the charge. Use it a lot? Make it a button: Settings &gt; Prices &gt; <b>+ Add item</b>.', 'other custom new', 'owner'],
+    ['Give a discount or credit', 'Tap <b>&minus; Credit</b>, type the amount off. It comes off that customer\'s next bill before tax.', 'credit discount', 'owner'],
+    ['Logged the wrong thing', 'Recent list, tap <b>Remove</b> on that job, then log it again. Once a job is on a bill it can not be removed.', 'mistake wrong undo remove', 'all'],
+    ['Are notes private?', 'Yes. Job notes never print on bills or emails. Tap the mic on your keyboard to talk instead of typing.', 'notes private', 'all'],
+    ['One customer, two properties', 'Settings &gt; Customers, tap the customer, <b>+ Add property</b>. Each property has its own mowing rate and mow day. They get ONE bill with a section for each property.', 'two properties rental multiple', 'owner'],
+    ['Sales tax', 'Every bill adds tax on the work total (Settings &gt; Business info &gt; Tax rate, 6 for PA). Credits come off before tax.', 'tax 6 percent pa', 'owner'],
+    ['When do bills go out?', 'Only when you send them. On bill day you get an email with a gold <b>SEND BILLS</b> button. Tap it, check the list, tap Send. Forget, and it comes again 3 and 7 days later.', 'bills when monthly send', 'owner'],
+    ['Bill one customer right now', 'Dash tab, <b>Open Balances</b>, tap the customer. Everything not billed is checked. Uncheck what should wait, tap <b>Bill</b>.', 'bill now one customer', 'owner'],
+    ['Customer has no email', 'Their bill says <b>Hand deliver</b>. Money tab, tap <b>PDF</b>, then text or print it.', 'no email pdf text print', 'owner'],
+    ['Someone paid me', 'Money tab, find the bill, tap <b>Got paid</b>. Pick Cash, Check or Venmo, tap Save. They get a receipt email.', 'paid cash check venmo', 'owner'],
+    ['Paid with Venmo', 'Tap Got paid and pick <b>Venmo</b>. The app only records it; the money is already in your Venmo. Add your Venmo username in Settings so it prints on bills.', 'venmo', 'owner'],
+    ['Customer is late', 'A red <b>Did these pay you?</b> card shows on Log. Paid? Tap Got paid. Not yet? Tap Not yet. Reminder emails go at 14 and 30 days late.', 'late overdue reminder', 'owner'],
+    ['Add a crew member', 'Settings &gt; Crew &gt; <b>+ Add</b>. Give them a PIN and they can log work on their own phone, with no money showing. No PIN = just a name you can pick under Done by.', 'crew helper dad pin', 'owner'],
+    ['App is stuck or looks old', 'Close the app all the way and open it again. Still stuck? Call Brian.', 'broken stuck refresh', 'all'],
+  ];
+
+  function openHelp() {
+    const list = HELP.filter(h => owner() || h[3] === 'all');
+    openSheet(`
+      <h3>Help</h3>
+      <input class="input" id="helpQ" type="search" placeholder="Search: rain, tax, venmo..." oninput="filterHelp(this.value)" style="margin-bottom:10px">
+      <div class="card list" id="helpList" style="padding:0 14px">${list.map(h => `
+        <details class="help-item" data-i="${HELP.indexOf(h)}"><summary>${esc(h[0])}</summary><div class="a">${h[1]}</div></details>`).join('')}
+      </div>
+      <div class="empty" id="helpNone" style="display:none">Nothing matched. Try one word, like "paid" or "rain".</div>
+      <button class="btn ghost big" style="margin-top:12px" onclick="closeSheet()">Close</button>`);
+  }
+
+  function filterHelp(q) {
+    const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    let shown = 0;
+    document.querySelectorAll('#helpList .help-item').forEach(el => {
+      const h = HELP[Number(el.dataset.i)];
+      const text = (h[0] + ' ' + h[1].replace(/<[^>]+>/g, ' ') + ' ' + h[2]).toLowerCase();
+      const hit = words.every(w => text.indexOf(w) >= 0);
+      el.style.display = hit ? '' : 'none';
+      el.open = hit && words.length > 0 && shown < 2;
+      if (hit) shown++;
+    });
+    $('helpNone').style.display = shown ? 'none' : '';
+  }
+
+  // ----- "Did you know?" tips: shown once each -----
+  const TIP_KEY = 'st_tips_seen';
+  function tipSeen(id) { try { return (JSON.parse(localStorage.getItem(TIP_KEY) || '[]')).indexOf(id) >= 0; } catch (e) { return false; } }
+  function markTip(id) { try { const all = JSON.parse(localStorage.getItem(TIP_KEY) || '[]'); all.push(id); localStorage.setItem(TIP_KEY, JSON.stringify(all)); } catch (e) {} }
+  function showTip(id, html) {
+    if (tipSeen(id)) return false;
+    markTip(id);
+    setTimeout(() => openSheet(`<div class="tip-card"><div class="k">DID YOU KNOW?</div><div class="t">${html}</div></div>
+      <button class="btn gold big" style="margin-top:16px" onclick="closeSheet()">Got it</button>`), 700);
+    return true;
+  }
+
+  function tipsAfterLog(job) {
+    const d = S.data;
+    const custom = job.custom && String(job.custom.description || '').trim();
+    if (!custom) return;
+    const lc = custom.toLowerCase();
+    const button = d.prices.find(p => p.active && lc.indexOf(p.name.toLowerCase()) >= 0);
+    if (button && showTip('button_' + button.id, `<b>${esc(button.name)}</b> is already a button, so you do not need + Other for it. Next time just tap <b>${esc(button.name)}</b>.`)) return;
+    const used = (d.otherSuggestions || []).find(o => o.description.toLowerCase() === lc);
+    if (used && used.count >= 3) showTip('make_button_' + lc, `You have charged <b>${esc(custom)}</b> ${used.count} times now. Make it a button: Settings &gt; Prices &gt; <b>+ Add item</b>.`);
+  }
+
+  const INTROS = {
+    log: '<b>Log every stop here.</b> Tap Mowed on the Mow List, or pick a property and tap what you did. Nothing goes to customers from this tab.',
+    crew: '<b>Log every stop here.</b> Tap Mowed on the Mow List, or pick a property and tap what you did.',
+    money: '<b>Bills you already sent.</b> See who still owes you. When someone pays, tap <b>Got paid</b>.',
+    dash: '<b>Send bills from here.</b> Plus mowing, the season, and how the business is doing.',
+    settings: '<b>Set it once.</b> Prices, customers and their properties, crew, and your business info.',
+  };
+  const intro = tab => `<div class="intro">${INTROS[tab]}</div>`;
+
+  // ----- Heads up cards on the Log tab (owner) -----
+  function readyCard(where) {
+    const r = S.data.readyBills;
+    if (!r) return '';
+    const n = r.customers.length;
+    if (where === 'log') return `
+      <div class="card nudge" style="cursor:pointer" onclick="showTab('dash')">
+        <h4>${esc(r.month)} bills are ready &rsaquo;</h4>
+        <div class="muted">${plural(n, 'customer')} &middot; <b style="color:var(--ink)">${money(r.total)}</b> with tax. Tap to send them on the Dash.</div>
+      </div>`;
+    return `
+      <div class="card nudge" style="margin-top:0">
+        <h4>${esc(r.month)} bills are ready</h4>
+        <div class="muted">${plural(n, 'customer')} &middot; <b style="color:var(--ink)">${money(r.total)}</b> with tax. Nobody gets one until you send it.</div>
+        <button class="btn gold big" style="margin-top:12px" onclick="openSendBills()">Send ${esc(r.month)} bills</button>
+      </div>`;
+  }
+
+  /** Crew-logged "price varies" lines waiting for the owner's price. */
+  function unpricedCard() {
+    const u = S.data.unpriced || [];
+    if (!u.length) return '';
+    return `
+      <div class="card nudge red" style="cursor:pointer" onclick="openPricing()">
+        <h4>${plural(u.length, 'job')} need${u.length === 1 ? 's' : ''} a price &rsaquo;</h4>
+        <div class="muted">Logged by your crew. They can not be billed until you price them.</div>
+      </div>`;
+  }
+
+  function openPricing() {
+    const u = S.data.unpriced || [];
+    if (!u.length) { closeSheet(); return; }
+    const lp = S.data.lastPrices || {};
+    openSheet(`
+      <h3>Set prices</h3>
+      <div class="muted" style="margin:-6px 0 12px">Price each, times the qty. Filled in with what you charged last time there.</div>
+      <div class="card list">
+        ${u.map(w => {
+          const last = lp[w.propertyId + '|' + w.itemId] || lp[w.itemId] || '';
+          return `<div class="item">
+            <div style="font-weight:800">${esc(w.description)}${w.qty > 1 ? ' x' + w.qty : ''}</div>
+            <div class="muted">${esc(w.propertyLabel)} &middot; ${niceDate(w.date)}${w.doneBy ? ' &middot; ' + esc(w.doneBy) : ''}</div>
+            <div class="row" style="margin-top:8px">
+              <input class="input grow" id="pw_${w.id}" type="number" inputmode="decimal" step="0.01" placeholder="0.00" value="${last ? Number(last).toFixed(2) : ''}">
+              <button class="btn gold" onclick="savePriceFor('${w.id}')">Save</button>
+            </div></div>`;
+        }).join('')}
+      </div>
+      <button class="btn ghost big" onclick="closeSheet()">Done</button>`);
+  }
+
+  async function savePriceFor(id) {
+    if (await run('priceWork', { ids: [id], price: $('pw_' + id).value }, 'Priced')) openPricing();
+  }
+
+  function openSendBills() {
+    const r = S.data.readyBills;
+    if (!r) { toast('Nothing waiting to bill. You are all caught up.'); return; }
+    openSheet(`
+      <h3>Send ${esc(r.month)} bills</h3>
+      <div class="muted" style="margin:-6px 0 12px">Uncheck anyone to skip for now. Tap a name to see every line. Totals include tax.</div>
+      <div class="card list" style="padding:4px 14px">
+        ${r.customers.map(c => `
+          <label class="pick">
+            <input type="checkbox" value="${esc(c.id)}" data-amt="${c.total}" checked onchange="updateSendBtn()">
+            <div class="grow" onclick="event.preventDefault(); event.stopPropagation(); closeSheet(); openAccount('${esc(c.id)}')">
+              <div style="font-weight:800">${esc(c.name)} <span style="color:var(--brass)">&rsaquo;</span></div>
+              <div class="muted">${plural(c.count, 'line')}${c.noEmail ? ' &middot; <span style="color:var(--brass)">No email: hand it over</span>' : ''}${c.unpriced ? ` &middot; <span style="color:#ffaa9e">${c.unpriced} unpriced, left for later</span>` : ''}</div>
+            </div>
+            <div class="amt">${money(c.total)}</div>
+          </label>`).join('')}
+      </div>
+      <button class="btn gold big" id="sendBtn" style="margin-top:14px" onclick="sendChecked()"></button>
+      <button class="btn ghost big" style="margin-top:8px" onclick="closeSheet()">Not now</button>`);
+    updateSendBtn();
+  }
+
+  const sheetChecked = () => [...document.querySelectorAll('#sheet .pick input:checked')];
+
+  function updateSendBtn() {
+    const btn = $('sendBtn');
+    if (!btn) return;
+    const on = sheetChecked();
+    const total = on.reduce((t, i) => t + Number(i.dataset.amt), 0);
+    btn.disabled = !on.length;
+    btn.textContent = on.length ? `Send ${plural(on.length, 'bill')}  ${money(total)}` : 'Check who gets one';
+  }
+
+  async function sendChecked() {
+    const ids = sheetChecked().map(i => i.value);
+    if (!ids.length || S.busy) return;
+    if (!confirm(`Send ${plural(ids.length, 'bill')} now?`)) return;
+    setBusy(true, `Sending ${plural(ids.length, 'bill')}... a few seconds each`);
+    try {
+      const res = await call('sendBills', { customerIds: ids });
+      closeSheet(); setData(res); showTab('money');
+      const t = res.sent;
+      toast(`Sent ${plural(t.count, 'bill')} for ${money(t.total)}` + (t.handOver.length ? `. Hand deliver: ${t.handOver.join(', ')}` : ''));
+    } catch (e) {
+      if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // "Not yet" hides a late invoice on this phone for a week.
+  const SNOOZE_KEY = 'st_late_snooze';
+  function snoozes() { try { return JSON.parse(localStorage.getItem(SNOOZE_KEY) || '{}'); } catch (e) { return {}; } }
+  function notYet(id) {
+    const all = snoozes();
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    all[id] = toYmd(d);
+    try { localStorage.setItem(SNOOZE_KEY, JSON.stringify(all)); } catch (e) {}
+    renderLog();
+  }
+
+  function reminderText(i) {
+    if (!i.email) return 'No email on file, so the app cannot remind them. You will have to ask.';
+    const next = S.data.reminderDays[i.reminderLevel || 0];
+    if (next === undefined) return 'All reminder emails have gone out.';
+    const days = next - i.daysLate;
+    return days > 1 ? `They get a reminder email in ${days} days.` : 'They get a reminder email tomorrow morning.';
+  }
+
+  /** Late invoices, asked of the owner before any customer gets a late email. */
+  function lateCard() {
+    const snoozed = snoozes(), today = S.data.today;
+    const late = S.data.openInvoices.filter(i => i.daysLate > 0 && !(snoozed[i.id] && snoozed[i.id] > today))
+      .sort((a, b) => b.daysLate - a.daysLate);
+    if (!late.length) return '';
+    return `
+      <div class="card nudge red list">
+        <h4>Did these pay you?</h4>
+        <div class="muted">Late on paper. If they paid you, tap Got paid so they are not sent a reminder.</div>
+        ${late.map(i => `
+          <div class="item">
+            <div class="row"><div class="grow"><div style="font-weight:800">${esc(i.customerName)}</div>
+              <div class="muted">#${esc(i.id)} &middot; ${plural(i.daysLate, 'day')} late</div></div>
+              <div style="text-align:right"><div class="amt">${money(i.balance)}</div>${i.paid ? '<span class="badge hand">Part paid</span>' : ''}</div></div>
+            <div class="muted" style="font-size:13px;margin-top:4px">${reminderText(i)}</div>
+            <div class="actions">
+              <button class="btn gold sm" onclick="openPay('${esc(i.id)}')">Got paid</button>
+              <button class="btn ghost sm" onclick="notYet('${esc(i.id)}')">Not yet</button>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  function jobBadge(j) {
+    const nums = '#' + esc(j.invoiceIds.join(', #'));
+    if (j.paid === 'all') return `<span class="badge ok">&#10003; Paid ${nums}</span>`;
+    if (j.paid === 'some') return `<span class="badge hand">Part paid ${nums}</span>`;
+    return `<span class="badge">Billed ${nums}</span>`;
+  }
+
+  function openJob(i) {
+    const j = S.data.recent[i];
+    const own = owner();
+    const nums = '#' + j.invoiceIds.join(', #');
+    const status = !j.invoiceIds.length ? (j.unpriced ? 'Needs a price before it can be billed.' : 'Not billed yet. Goes on the next bill.')
+      : j.paid === 'all' ? 'Paid. Invoice ' + nums : j.paid === 'some' ? 'Part paid. Invoice ' + nums : 'Billed on ' + nums + ', not paid yet';
+    const payBtns = own ? (j.openInvoiceIds || []).map(id =>
+      `<button class="btn gold" style="flex:1" onclick="closeSheet(); openPay('${esc(id)}')">Got paid${j.openInvoiceIds.length > 1 ? ' #' + esc(id) : ''}</button>`).join('') : '';
+    openSheet(`
+      <h3>${esc(j.propertyLabel)}</h3>
+      <div class="muted" style="margin:-8px 0 8px">${own ? esc(j.customerName) + ' &middot; ' : ''}${niceDate(j.date)}${j.doneBy ? ' &middot; ' + esc(j.doneBy) : ''}</div>
+      ${own ? `<div class="muted" style="margin:0 0 12px">${esc(status)}</div>` : ''}
+      <div class="card list">
+        ${j.lines.map(l => `
+          <div class="item row">
+            <div class="grow" style="font-weight:700">${esc(l.name)}${l.qty > 1 ? ' <span class="muted">x' + l.qty + '</span>' : ''}</div>
+            ${own ? `<div class="amt" ${l.amount < 0 ? 'style="color:var(--red)"' : ''}>${l.amount === null ? '<span class="badge late">Needs price</span>' : money(l.amount)}</div>` : ''}
+          </div>`).join('')}
+        ${own ? `<div class="item row"><div class="grow" style="font-weight:800">Total (before tax)</div><div class="amt">${money(j.amount)}</div></div>` : ''}
+      </div>
+      ${j.note ? `<div class="lbl">Job notes</div><div class="card" style="white-space:pre-wrap">${esc(j.note)}</div>` : ''}
+      ${payBtns ? `<div class="row" style="margin-top:14px">${payBtns}</div>` : ''}
+      <div class="row" style="margin-top:10px">
+        ${j.billed !== 'all' ? `<button class="btn danger" style="flex:1" onclick="closeSheet(); voidJob(${i})">Remove</button>` : ''}
+        <button class="btn" style="flex:1" onclick="closeSheet()">Close</button>
+      </div>`);
+  }
+
+  function voidJob(i) {
+    const j = S.data.recent[i];
+    const what = j.billed === 'some' ? 'the unbilled part of this job' : 'this job';
+    if (!confirm(`Remove ${what} (${j.propertyLabel}, ${niceDate(j.date)})? It will not be billed.`)) return;
+    run('voidWork', j.ids, 'Removed');
+  }
+
+  // =====================================================================
+  // Dash tab (owner)
+  // =====================================================================
+  async function loadDash() {
+    const el = $('tab-dash');
+    if (!S.dash) el.innerHTML = '<div class="empty">Crunching the numbers...</div>';
+    else el.classList.add('stale');
+    try {
+      S.dash = await call('dashboard');
+      renderDash();
+    } catch (e) {
+      if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true);
+      if (!S.dash) el.innerHTML = '<div class="empty">Could not load the dashboard. Tap Dash to retry.</div>';
+    } finally {
+      el.classList.remove('stale');
+    }
+  }
+
+  const ICON = { fix: '&#10005;', watch: '!', good: '&#10003;' };
+  const ago = n => n === 0 ? 'today' : n === 1 ? 'yesterday' : n + ' days ago';
+  const whole = n => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
+
+  /** The auto to-do list: everything on the dashboard that wants a decision, worst first. */
+  function headsUp(D) {
+    const out = [];
+    const m = D.money, w = D.work, sy = D.system;
+    if (m.lateCount) out.push(['fix', `${plural(m.lateCount, 'late invoice')}: ${money(m.lateTotal)} past due`]);
+    if (S.data.readyBills) out.push(['fix', `${esc(S.data.readyBills.month)} bills not sent yet: ${money(S.data.readyBills.total)}. Tap Send above.`]);
+    if ((S.data.unpriced || []).length) out.push(['fix', `${plural(S.data.unpriced.length, 'crew job')} need a price before billing (Log tab)`]);
+    if (inMowSeason() && w.mowDueThisWeek) out.push(['watch', `${w.mowDueThisWeek} of ${plural(w.mowProperties, 'lawn')} still to mow this week`]);
+    const hand = m.inHand.cash + m.inHand.checks;
+    if (hand > 0) out.push(['watch', `Deposit: ${money(m.inHand.cash)} cash and ${money(m.inHand.checks)} in checks taken this week`]);
+    if (!sy.ownerEmailSet) out.push(['watch', 'Your email is blank in Settings, so bill-day reminders and invoice copies go to the app\'s Gmail only']);
+    if (!sy.venmoSet) out.push(['watch', 'No Venmo username in Settings, so bills do not offer Venmo']);
+    if (sy.missingEmails) out.push(['watch', `${plural(sy.missingEmails, 'customer')} with no email: their bills must be handed over`]);
+    if (sy.paused) out.push(['fix', 'Automation is paused: late reminders will not go to customers']);
+    if (sy.lastDailyHoursAgo !== null && sy.lastDailyHoursAgo > 30) out.push(['fix', `The 7am daily job last ran ${sy.lastDailyHoursAgo} hours ago`]);
+    return out;
+  }
+
+  /** Six-month grouped bars: Logged (work) vs Collected (payments). Tap a month for its numbers. */
+  function moneyChart(months) {
+    const W = 320, H = 150, top = 14, bottom = 22, left = 34;
+    const max = Math.max(1, ...months.map(x => Math.max(x.logged, x.collected)));
+    const step = Math.pow(10, Math.floor(Math.log10(max)));
+    const nice = Math.ceil(max / step) * step;
+    const y = v => top + (H - top - bottom) * (1 - v / nice);
+    const slot = (W - left) / months.length, bw = Math.min(14, slot / 3);
+    const bar = (x, v, color) => {
+      if (!(v > 0)) return '';
+      const yy = y(v), h = (H - bottom) - yy, r = Math.min(4, h, bw / 2);
+      return `<path fill="${color}" d="M${x},${H - bottom} V${yy + r} Q${x},${yy} ${x + r},${yy} H${x + bw - r} Q${x + bw},${yy} ${x + bw},${yy + r} V${H - bottom} Z"/>`;
+    };
+    let g = '';
+    [0, nice / 2, nice].forEach(v => {
+      g += `<line x1="${left}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,${v ? .06 : .18})"/>` +
+        `<text x="${left - 6}" y="${y(v) + 4}" text-anchor="end" font-size="10" fill="#a3b3a0">${v >= 1000 ? '$' + (v / 1000) + 'k' : '$' + v}</text>`;
+    });
+    months.forEach((m, i) => {
+      const cx = left + slot * i + slot / 2;
+      g += bar(cx - bw - 1, m.logged, 'var(--c-logged)') + bar(cx + 1, m.collected, 'var(--c-collected)');
+      g += `<text x="${cx}" y="${H - 6}" text-anchor="middle" font-size="11" fill="#a3b3a0">${m.label}</text>`;
+      g += `<rect class="hit" x="${left + slot * i}" y="0" width="${slot}" height="${H - bottom}" rx="6" data-i="${i}" tabindex="0" onclick="chartTip(${i})" onfocus="chartTip(${i})"></rect>`;
+    });
+    return `<div class="chart-wrap" id="mchart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Logged and collected by month">${g}</svg><div class="tip" id="mtip"></div></div>
+      <div class="legend"><span><i style="background:var(--c-logged)"></i>Logged (work done)</span><span><i style="background:var(--c-collected)"></i>Collected</span></div>
+      <details class="nums"><summary>Show numbers</summary><table class="nums"><tr><th>Month</th><th>Logged</th><th>Collected</th></tr>
+        ${months.map(m => `<tr><td>${m.label}</td><td>${money(m.logged)}</td><td>${money(m.collected)}</td></tr>`).join('')}</table></details>`;
+  }
+
+  function chartTip(i) {
+    const m = S.dash.money.months[i];
+    const wrap = $('mchart'), tip = $('mtip');
+    const hits = wrap.querySelectorAll('.hit');
+    hits.forEach(h => h.classList.toggle('on', Number(h.dataset.i) === i));
+    const r = hits[i].getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+    tip.innerHTML = `<div style="color:var(--muted);margin-bottom:3px">${m.label}</div>
+      <b><span class="ln" style="background:var(--c-logged)"></span>${money(m.logged)} <span style="color:var(--muted);font-weight:600">logged</span></b>
+      <b><span class="ln" style="background:var(--c-collected)"></span>${money(m.collected)} <span style="color:var(--muted);font-weight:600">collected</span></b>`;
+    tip.style.left = Math.min(Math.max(r.left - wr.left + r.width / 2, 70), wr.width - 70) + 'px';
+    tip.style.display = 'block';
+    clearTimeout(chartTip.t);
+    chartTip.t = setTimeout(() => { tip.style.display = 'none'; hits.forEach(h => h.classList.remove('on')); }, 3500);
+  }
+
+  function renderDash() {
+    const D = S.dash, m = D.money, w = D.work, sy = D.system;
+    const hr = new Date().getHours();
+    const hi = (hr < 12 ? 'Morning' : hr < 17 ? 'Afternoon' : 'Evening') + (D.owner ? ', ' + esc(D.owner) : '');
+    const heads = headsUp(D);
+    const maxTop = Math.max(1, ...m.topCustomers.map(c => c.amount));
+    const owing = w.accounts.filter(a => a.unbilledCount || a.openCount)
+      .sort((a, b) => (b.late - a.late) || ((b.unbilled + b.open) - (a.unbilled + a.open)));
+    const dueMow = w.mowStatus.filter(x => x.due);
+
+    $('tab-dash').innerHTML = `
+      ${intro('dash')}
+      ${readyCard('dash')}
+      <div class="dash-head"><div class="dash-hi">${hi}</div>
+        <button class="btn ghost sm" onclick="loadDash()">&#8635; ${esc(D.generated)}</button></div>
+
+      <div class="lbl">Heads up</div>
+      <div class="card">${heads.length
+        ? `<ul class="heads">${heads.map(([st, t]) => `<li><span class="ic ${st}">${ICON[st]}</span><span>${t}</span></li>`).join('')}</ul>`
+        : `<ul class="heads"><li><span class="ic good">${ICON.good}</span><span>All clear. Nothing needs you right now.</span></li></ul>`}</div>
+
+      <div class="lbl">Money</div>
+      <div class="tiles">
+        <div class="tile wide"><div class="k">Owed to you</div><div class="v money-big" style="font-size:34px">${money(m.owed)}</div>
+          <div class="s">${plural(m.openCount, 'open invoice')}${m.lateCount ? ` &middot; <span style="color:#ffaa9e">${m.lateCount} late</span>` : ''}</div></div>
+        <div class="tile"><div class="k">Logged this month</div><div class="v">${whole(m.loggedThisMonth)}</div><div class="s">work done, before tax</div></div>
+        <div class="tile"><div class="k">Collected this month</div><div class="v">${whole(m.collectedThisMonth)}</div><div class="s">cash, checks, Venmo</div></div>
+        <div class="tile"><div class="k">Took in, 7 days</div><div class="v">${whole(m.inHand.cash + m.inHand.checks + m.inHand.venmo)}</div><div class="s">${money(m.inHand.cash)} cash &middot; ${plural(m.inHand.checkCount, 'check')} &middot; ${money(m.inHand.venmo)} Venmo</div></div>
+        <div class="tile"><div class="k">Avg days to pay</div><div class="v">${m.avgDaysToPay === null ? '&ndash;' : m.avgDaysToPay}</div><div class="s">bill to paid in full</div></div>
+      </div>
+      <div class="card" style="margin-top:10px">
+        <div class="row"><div class="grow" style="font-weight:800">Last 6 months</div><div class="muted">This year: ${whole(m.seasonLogged)}</div></div>
+        ${moneyChart(m.months)}
+      </div>
+      ${m.late.length ? `<div class="card list" style="margin-top:10px"><div style="font-weight:800;margin-bottom:4px">Late payers</div>
+        ${m.late.map(l => `<div class="item row"><div class="grow"><div style="font-weight:700">${esc(l.name)}</div><div class="muted">#${esc(l.id)} &middot; ${plural(l.days, 'day')} late</div></div><div class="amt">${money(l.balance)}</div></div>`).join('')}</div>` : ''}
+      ${m.topCustomers.length ? `<div class="card" style="margin-top:10px"><div style="font-weight:800;margin-bottom:6px">Top customers this year</div>
+        ${m.topCustomers.map(c => `<div class="hbar"><div class="n">${esc(c.name)}</div><div class="track"><div class="fill" style="width:${(c.amount / maxTop * 100).toFixed(1)}%"></div></div><div class="a">${whole(c.amount)}</div></div>`).join('')}</div>` : ''}
+
+      <div class="lbl">Work</div>
+      <div class="tiles">
+        <div class="tile"><div class="k">Mowed this week</div><div class="v">${w.mowsThisWeek}</div><div class="s">${w.mowDueThisWeek} of ${w.mowProperties} lawns still due</div></div>
+        <div class="tile"><div class="k">Lines this month</div><div class="v">${w.jobsThisMonth}</div><div class="s">${plural(w.propertyCount, 'property')}, ${plural(w.customerCount, 'customer')}</div></div>
+      </div>
+      ${w.mowStatus.length ? `
+      <details class="fold card">
+        <summary class="row"><div class="grow"><div style="font-weight:800">Mowing status</div>
+          <div class="muted">${dueMow.length ? dueMow.length + ' still due this week' : 'Everyone mowed this week'}</div></div><span class="chev">&rsaquo;</span></summary>
+        <div class="list" style="margin-top:6px">${w.mowStatus.map(x => `
+          <div class="item row"><div class="grow"><div style="font-weight:700" class="ell">${esc(x.label)}</div>
+            <div class="muted">${esc(x.customerName)} &middot; ${esc(x.service)}${x.mowDay ? ' &middot; ' + esc(x.mowDay) : ''}</div></div>
+            <span class="stlabel ${x.due ? (x.daysSince === null || x.daysSince > (x.service === 'Weekly' ? 9 : 16) ? 'fix' : 'watch') : 'good'}">${x.lastMow ? ago(x.daysSince) : 'Never'}</span></div>`).join('')}
+        </div>
+      </details>` : ''}
+      ${w.crewWeek.length > 1 || hasCrew() ? `<div class="card list" style="margin-top:10px"><div style="font-weight:800;margin-bottom:4px">Who did what, last 7 days</div>
+        ${w.crewWeek.length ? w.crewWeek.map(c => `<div class="item row"><div class="grow"><div style="font-weight:700">${esc(c.name)}</div><div class="muted">${plural(c.stops, 'stop')} &middot; ${plural(c.mows, 'lawn')} mowed</div></div><div class="amt">${money(c.amount)}</div></div>`).join('') : '<div class="empty">Nothing logged this week.</div>'}</div>` : ''}
+
+      <div class="card list" style="margin-top:10px"><div style="font-weight:800;margin-bottom:2px">Open Balances</div>
+        <div class="muted" style="margin-bottom:4px">Unbilled work and unpaid bills. Tap to bill or record a payment.</div>
+        ${owing.length ? owing.map(acctRow).join('') : '<div class="empty">Nobody owes you anything. Nice.</div>'}
+      </div>
+      <details class="fold card">
+        <summary class="row"><div class="grow"><div style="font-weight:800">Season checklist</div>
+          <div class="muted">Spring clean up, mulch, fall clean up, ${new Date().getFullYear()}</div></div><span class="chev">&rsaquo;</span></summary>
+        <div class="list" style="margin-top:6px">${w.season.map(x => `
+          <div class="item row"><div class="grow"><div style="font-weight:700" class="ell">${esc(x.label)}</div><div class="muted ell">${esc(x.customerName)}</div></div>
+            <span class="oc ${x.spring ? 'yes' : ''}">${x.spring ? '&#10003; ' : ''}Spring</span><span class="oc ${x.mulch ? 'yes' : ''}">${x.mulch ? '&#10003; ' : ''}Mulch</span><span class="oc ${x.fall ? 'yes' : ''}">${x.fall ? '&#10003; ' : ''}Fall</span></div>`).join('') || '<div class="empty">No properties yet.</div>'}
+        </div>
+      </details>
+      <details class="fold card">
+        <summary class="row"><div class="grow"><div style="font-weight:800">All customers</div><div class="muted">${plural(w.accounts.length, 'active customer')}</div></div><span class="chev">&rsaquo;</span></summary>
+        <div class="list" style="margin-top:6px">${w.accounts.map(acctRow).join('')}</div>
+      </details>
+
+      <div class="lbl">System</div>
+      <div class="card"><div class="sysgrid">
+        <div><span>Bill day reminder</span>${niceDate(sy.nextBilling)}</div>
+        <div><span>Automation</span>${sy.paused ? '<span style="color:#ffaa9e">Paused</span>' : '<span style="color:var(--green)">On</span>'}</div>
+        <div><span>Daily job</span>${sy.lastDailyRun ? esc(sy.lastDailyRun) : 'Not run yet'}</div>
+        <div><span>Emails this month</span>${plural(sy.invoicesEmailed, 'invoice')} &middot; ${plural(sy.receiptsEmailed, 'receipt')}</div>
+        <div><span>Sales tax</span>${sy.taxRate}%</div>
+        <div><span>Venmo on bills</span>${sy.venmoSet ? '<span style="color:var(--green)">On</span>' : 'Off'}</div>
+      </div></div>`;
+  }
+
+  function acctRow(a) {
+    const money1 = [a.unbilledCount ? `${whole(a.unbilled)} unbilled` : '', a.openCount ? `${whole(a.open)} owed` : ''].filter(Boolean).join(' &middot; ');
+    const badge = a.late ? `<span class="stlabel fix">${ICON.fix} Late</span>`
+      : a.unpriced ? '<span class="stlabel fix">Needs price</span>'
+      : a.unbilledCount ? '<span class="stlabel watch">To bill</span>'
+      : a.openCount ? '<span class="stlabel none">Billed</span>'
+      : `<span class="stlabel good">${ICON.good} Paid up</span>`;
+    return `<div class="item row acct" onclick="openAccount('${esc(a.id)}')">
+      <div class="grow"><div style="font-weight:700">${esc(a.name)}</div>
+        <div class="muted">${plural(a.properties, 'property')}${money1 ? ' &middot; ' + money1 : ''}</div></div>
+      ${badge}<span class="chev">&rsaquo;</span></div>`;
+  }
+
+  async function openAccount(customerId) {
+    if (S.busy) return;
+    setBusy(true, 'Opening account...');
+    try { S.acct = await call('customerAccount', customerId); }
+    catch (e) { setBusy(false); if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true); return; }
+    setBusy(false);
+    renderAccount();
+  }
+
+  function renderAccount() {
+    const A = S.acct, c = A.customer;
+    let lastProp = null;
+    const lines = A.unbilled.map(u => {
+      const head = u.propertyLabel !== lastProp ? `<div class="grp">${esc(u.propertyLabel)}</div>` : '';
+      lastProp = u.propertyLabel;
+      return head + (u.unpriced ? `
+        <div class="pick off" style="cursor:default">
+          <input type="checkbox" disabled>
+          <div class="grow"><div style="font-weight:700">${esc(u.description)}${u.qty > 1 ? ' x' + u.qty : ''}</div><div class="muted">${niceDate(u.date)}${u.doneBy ? ' &middot; ' + esc(u.doneBy) : ''}</div></div>
+          <button class="btn gold sm" onclick="closeSheet(); openPricing()">Set price</button>
+        </div>` : `
+        <label class="pick">
+          <input type="checkbox" value="${esc(u.id)}" data-amt="${u.amount}" checked onchange="updateBillBtn()">
+          <div class="grow"><div style="font-weight:700">${esc(u.description)}${u.qty > 1 ? ' x' + u.qty : ''}</div><div class="muted">${niceDate(u.date)}${u.doneBy ? ' &middot; ' + esc(u.doneBy) : ''}</div></div>
+          <div class="amt">${money(u.amount)}</div>
+          <button class="x" title="Remove" onclick="event.preventDefault(); event.stopPropagation(); removeLine('${esc(u.id)}')">&#10005;</button>
+        </label>`);
+    }).join('');
+    openSheet(`
+      <h3>${esc(c.name)}</h3>
+      <div class="muted" style="margin:-6px 0 6px">${c.email ? esc(c.email) : '<span style="color:#ffaa9e">No email: bills are handed over</span>'}</div>
+
+      <div class="sec">Not billed yet</div>
+      <div class="card list" style="padding:4px 14px">${A.unbilled.length ? lines : '<div class="empty">Nothing waiting to be billed.</div>'}</div>
+      ${A.unbilled.some(u => !u.unpriced) ? `<label class="field" style="margin-top:12px"><span>Note on the bill (optional)</span>
+          <textarea class="input" id="billNote" style="min-height:64px" placeholder="Thanks for a great season! See you in the spring."></textarea></label>
+        <button class="btn gold big" id="billBtn" style="margin-top:4px" onclick="billChecked()"></button>
+        <div class="muted" style="margin:8px 2px 0" id="billMath"></div>` : ''}
+
+      <div class="sec">Open bills</div>
+      <div class="card list">
+        ${A.open.length ? A.open.map(i => `
+          <div class="item">
+            <div class="row"><div class="grow"><div style="font-weight:800">#${esc(i.id)} &middot; ${niceDate(i.invoiceDate)}</div>
+              <div class="muted">${i.paid ? money(i.paid) + ' paid so far &middot; ' : ''}${i.daysLate ? `<span style="color:#ffaa9e">${plural(i.daysLate, 'day')} late</span>` : 'Due ' + niceDate(i.dueDate)}</div></div>
+              <div style="text-align:right"><div class="amt">${money(i.balance)}</div>${i.paid ? '<span class="badge hand">Part paid</span>' : ''}</div></div>
+            <div class="actions">
+              <button class="btn gold sm" onclick="closeSheet(); openPay('${esc(i.id)}')">Got paid</button>
+              ${i.pdfUrl ? `<a class="btn ghost sm" href="${i.pdfUrl}" target="_blank">PDF</a>` : ''}
+              ${i.email ? `<button class="btn ghost sm" onclick="resend('${esc(i.id)}')">Resend</button>` : ''}
+            </div>
+          </div>`).join('') : '<div class="empty">Nothing open. All paid up.</div>'}
+      </div>
+
+      <div class="sec">Paid</div>
+      <div class="card list">
+        ${A.paid.length ? A.paid.map(i => `
+          <div class="item row"><div class="grow"><div style="font-weight:700">#${esc(i.id)} &middot; ${niceDate(i.invoiceDate)}</div>
+            <div class="muted">${i.paidDate ? 'Paid ' + niceDate(i.paidDate) : 'Paid'}</div></div>
+            <div style="text-align:right"><div class="amt">${money(i.total)}</div><span class="badge ok">&#10003; Paid</span></div></div>`).join('') : '<div class="empty">No paid bills yet.</div>'}
+      </div>
+      <button class="btn ghost big" onclick="closeSheet()">Close</button>`);
+    updateBillBtn();
+  }
+
+  async function removeLine(id) {
+    if (!confirm('Remove this line? It will not be billed.')) return;
+    const cid = S.acct.customer.id;
+    if (await run('voidWork', [id], 'Removed')) { openAccount(cid); if (S.tab === 'dash') loadDash(); }
+  }
+
+  /** Same math as the server's invoiceMath_: tax once on the work subtotal, rounded once. */
+  function billMath(subtotal) {
+    const rate = S.acct ? S.acct.taxRate : S.data.taxRate;
+    const tax = subtotal > 0 ? round2(subtotal * rate / 100) : 0;
+    return { subtotal: round2(subtotal), rate, tax, total: round2(subtotal + tax) };
+  }
+
+  function updateBillBtn() {
+    const btn = $('billBtn');
+    if (!btn) return;
+    const items = sheetChecked();
+    const m = billMath(items.reduce((t, i) => t + Number(i.dataset.amt), 0));
+    btn.disabled = !items.length || m.subtotal <= 0;
+    btn.textContent = !items.length ? 'Check items to bill' : m.subtotal <= 0 ? 'Credits cover this. Check more work.' : `Bill ${plural(items.length, 'item')}  ${money(m.total)}`;
+    $('billMath').textContent = items.length && m.subtotal > 0 ? `${money(m.subtotal)} work + ${money(m.tax)} tax (${m.rate}%) = ${money(m.total)}. Unchecked items stay here for later.` : 'Unchecked items stay here for later.';
+  }
+
+  async function billChecked() {
+    const c = S.acct.customer, items = sheetChecked();
+    if (!items.length) return;
+    const m = billMath(items.reduce((t, i) => t + Number(i.dataset.amt), 0));
+    const how = c.email ? `and email it to ${c.email}` : '(no email on file, so you will hand them the PDF)';
+    if (!confirm(`Create one bill for ${money(m.total)} ${how}?`)) return;
+    setBusy(true, 'Creating the bill...');
+    try {
+      const res = await call('billSelected', { customerId: c.id, entryIds: items.map(i => i.value), message: $('billNote') ? $('billNote').value : '' });
+      setData(res);
+      const b = res.billed;
+      toast(b.emailed ? `Bill #${b.id} sent to ${b.email}` : `Bill #${b.id} created. Hand them the PDF.`);
+      S.acct = await call('customerAccount', c.id);
+      renderAccount();
+      loadDash();
+    } catch (e) {
+      if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // =====================================================================
+  // Money tab (owner)
+  // =====================================================================
+  function invoiceBadge(i) {
+    if (!i.email) return '<span class="badge hand">Hand deliver</span>';
+    if (!i.emailed) return '<span class="badge late">Not emailed</span>';
+    if (i.daysLate > 0) return `<span class="badge late">${plural(i.daysLate, 'day')} late</span>`;
+    return `<span class="badge">Due ${niceDate(i.dueDate)}</span>`;
+  }
+
+  function renderMoney() {
+    const d = S.data;
+    const open = d.openInvoices.slice().sort((a, b) => b.daysLate - a.daysLate || a.dueDate.localeCompare(b.dueDate));
+    const owed = open.reduce((t, i) => t + i.balance, 0);
+    const late = open.filter(i => i.daysLate > 0).length;
+    $('tab-money').innerHTML = `
+      ${intro('money')}
+      <div class="card vault">
+        <div class="muted" style="letter-spacing:1.4px;text-transform:uppercase;font-weight:800;font-size:12px">Owed to you</div>
+        <div class="money-big">${money(owed)}</div>
+        <div class="muted">${plural(open.length, 'open bill')}${late ? ' &middot; <span style="color:#ffaa9e">' + late + ' late</span>' : ''}</div>
+      </div>
+      <div class="lbl">Open bills</div>
+      <div class="card list">${open.length ? open.map(i => `
+        <div class="item">
+          <div class="row">
+            <div class="grow"><div style="font-weight:800">${esc(i.customerName)}</div>
+              <div class="muted">#${esc(i.id)} &middot; ${niceDate(i.invoiceDate)}${i.paid ? ' &middot; ' + money(i.paid) + ' paid so far' : ''}</div></div>
+            <div style="text-align:right"><div class="amt">${money(i.balance)}</div>${i.paid ? '<span class="badge hand">Part paid</span><br>' : ''}${invoiceBadge(i)}</div>
+          </div>
+          <div class="actions">
+            <button class="btn gold sm" onclick="openPay('${esc(i.id)}')">Got paid</button>
+            ${i.pdfUrl ? `<a class="btn ghost sm" href="${i.pdfUrl}" target="_blank">PDF</a>` : ''}
+            ${i.email ? `<button class="btn ghost sm" onclick="resend('${esc(i.id)}')">Resend</button>` : ''}
+          </div>
+        </div>`).join('') : '<div class="empty">Nobody owes you anything. Nice.</div>'}
+      </div>
+      <div class="lbl">Recently paid</div>
+      <div class="card list">${d.paidInvoices.length ? d.paidInvoices.map(i => `
+        <div class="item row">
+          <div class="grow"><div style="font-weight:800">${esc(i.customerName)}</div><div class="muted">#${esc(i.id)} &middot; ${niceDate(i.invoiceDate)}</div></div>
+          <div style="text-align:right"><div class="amt">${money(i.total)}</div><span class="badge ok">&#10003; Paid</span></div>
+        </div>`).join('') : '<div class="empty">No paid bills yet.</div>'}
+      </div>`;
+  }
+
+  const REF_LABEL = { Check: 'Check # (optional)', Venmo: 'Venmo note or name (optional)' };
+
+  function openPay(id) {
+    const i = S.data.openInvoices.find(x => x.id === id);
+    if (!i) return;
+    S.payMethod = 'Cash';
+    openSheet(`
+      <h3>Got paid</h3>
+      <div class="muted" style="margin:-6px 0 16px">${esc(i.customerName)} &middot; Bill #${esc(i.id)} &middot; balance ${money(i.balance)}</div>
+      <label class="field"><span>Amount</span>
+        <input class="input" id="payAmt" type="number" inputmode="decimal" step="0.01" value="${i.balance.toFixed(2)}"></label>
+      <div class="field"><span>How</span>
+        <div class="seg" id="paySeg">
+          <button class="on" onclick="setPayMethod('Cash')">Cash</button>
+          <button onclick="setPayMethod('Check')">Check</button>
+          <button onclick="setPayMethod('Venmo')">Venmo</button>
+        </div>
+      </div>
+      <label class="field" id="refWrap" style="display:none"><span id="refLbl"></span><input class="input" id="payRef"></label>
+      <label class="field"><span>Date received</span>
+        <input class="input" id="payDate" type="date" value="${S.data.today}" max="${S.data.today}"></label>
+      <div class="row" style="margin-top:8px">
+        <button class="btn ghost grow" onclick="closeSheet()">Cancel</button>
+        <button class="btn gold grow" onclick="savePayment('${esc(i.id)}')">Save</button>
+      </div>`);
+  }
+
+  function setPayMethod(m) {
+    S.payMethod = m;
+    document.querySelectorAll('#paySeg button').forEach(b => b.classList.toggle('on', b.textContent === m));
+    $('refWrap').style.display = REF_LABEL[m] ? '' : 'none';
+    $('refLbl').textContent = REF_LABEL[m] || '';
+    $('payRef').setAttribute('inputmode', m === 'Check' ? 'numeric' : 'text');
+  }
+
+  async function savePayment(id) {
+    const ok = await run('recordPayment', {
+      invoiceId: id, amount: $('payAmt').value, method: S.payMethod, ref: S.payMethod === 'Cash' ? '' : $('payRef').value, date: $('payDate').value,
+    }, 'Payment saved');
+    if (ok) { closeSheet(); if (S.tab === 'dash') loadDash(); }
+  }
+
+  function resend(id) {
+    if (!confirm('Email bill #' + id + ' again?')) return;
+    run('resendInvoice', id, 'Bill sent');
+  }
+
+  // =====================================================================
+  // Settings tab (owner)
+  // =====================================================================
+  function renderSettings() {
+    const d = S.data, st = d.settings;
+    const custs = d.customers.slice().sort((a, b) => (b.active - a.active) || byName(a, b));
+    const propsOf = id => d.properties.filter(p => p.customerId === id).sort(byLabel);
+    const noEmail = d.customers.filter(c => c.active && !c.email).length;
+
+    $('tab-settings').innerHTML = `
+      ${intro('settings')}
+
+      <div class="lbl">Customers &amp; properties</div>
+      ${noEmail ? `<div class="warn" style="margin:0 0 12px">${plural(noEmail, 'customer')} with no email. Their bills will need to be handed over.</div>` : ''}
+      <div class="card list">
+        ${d.customers.length > 8 ? `<input class="input" type="search" placeholder="Search customers" oninput="filterCustomers(this.value)" style="margin-bottom:6px">` : ''}
+        <div id="custList">${custs.map(c => `
+          <div class="item tap" data-s="${esc((c.name + ' ' + propsOf(c.id).map(p => p.label + ' ' + p.address).join(' ')).toLowerCase())}" onclick="editCustomer('${c.id}')">
+            <div class="row"><div class="grow"><div style="font-weight:800${c.active ? '' : ';opacity:.45'}">${esc(c.name)}</div>
+              <div class="muted">${c.email ? esc(c.email) : '<span style="color:var(--red)">no email</span>'}${c.active ? '' : ' &middot; inactive'}</div></div>
+              <div style="color:var(--brass)">&rsaquo;</div></div>
+            <div class="sub-props">${propsOf(c.id).map(p => `<div${p.ownActive ? '' : ' style="opacity:.45"'}>&#8226; ${esc(p.label)} &middot; ${esc(p.service)}${p.mowRate ? ' ' + money(p.mowRate) : ''}${p.mowDay ? ' &middot; ' + esc(p.mowDay) : ''}</div>`).join('') || '<div style="color:var(--red)">No property yet</div>'}</div>
+          </div>`).join('') || '<div class="empty">No customers yet.</div>'}</div>
+        <button class="btn gold sm" style="margin-top:12px" onclick="editCustomer('')">+ Add customer</button>
+      </div>
+
+      <div class="lbl">Prices</div>
+      <div class="card list">
+        ${d.prices.map(p => `
+          <div class="item row tap" onclick="editPrice('${p.id}')">
+            <div class="grow"><div style="font-weight:800${p.active ? '' : ';opacity:.45'}">${esc(p.name)}</div><div class="muted">${p.kind === 'Service' ? 'Main service' : 'Extra'}${p.active ? '' : ' &middot; hidden'}${p.id === MOWING ? ' &middot; each property can have its own rate' : ''}</div></div>
+            <div class="amt">${p.price > 0 ? money(p.price) : '<span class="muted">Varies</span>'}</div>
+          </div>`).join('')}
+        <button class="btn ghost sm" style="margin-top:12px" onclick="editPrice('')">+ Add item</button>
+      </div>
+      <div class="muted" style="margin:8px 2px 0">Price changes apply to work logged from now on.</div>
+
+      <div class="lbl">Crew</div>
+      <div class="card list">
+        ${d.crew.map(c => `
+          <div class="item row tap" onclick="editCrew('${c.id}')">
+            <div class="grow"><div style="font-weight:800${c.active ? '' : ';opacity:.45'}">${esc(c.name)}</div>
+              <div class="muted">${c.pin ? 'Has a PIN: logs on their own phone' : 'No PIN: pick them under Done by'}${c.active ? '' : ' &middot; inactive'}</div></div>
+            <div style="color:var(--brass)">&rsaquo;</div></div>`).join('') || '<div class="muted" style="padding:4px 0 8px">Just you for now. Add a helper and they can log their own work without seeing any money.</div>'}
+        <button class="btn ghost sm" style="margin-top:12px" onclick="editCrew('')">+ Add crew member</button>
+      </div>
+
+      <div class="lbl">Business info</div>
+      <div class="card">
+        <label class="field"><span>Business name</span><input class="input" id="setBiz" value="${esc(st.BUSINESS_NAME)}"></label>
+        <label class="field"><span>Your name (signs emails)</span><input class="input" id="setOwner" value="${esc(st.OWNER_NAME)}"></label>
+        <label class="field"><span>Phone</span><input class="input" id="setPhone" type="tel" value="${esc(st.BUSINESS_PHONE)}"></label>
+        <label class="field"><span>Your email (copies and replies)</span><input class="input" id="setEmail" type="text" inputmode="email" autocapitalize="off" value="${esc(st.BUSINESS_EMAIL)}" placeholder="Blank = the app's Gmail"></label>
+        <label class="field"><span>Checks payable to</span><input class="input" id="setPayable" value="${esc(st.CHECKS_PAYABLE_TO)}" placeholder="${esc(st.BUSINESS_NAME)}"></label>
+        <label class="field"><span>Mail checks to (optional)</span><input class="input" id="setMail" value="${esc(st.MAILING_ADDRESS)}"></label>
+        <label class="field"><span>Venmo username (no @)</span><input class="input" id="setVenmo" autocapitalize="off" value="${esc(st.VENMO_HANDLE)}" placeholder="Blank = no Venmo on bills"></label>
+        <div class="two">
+          <label class="field"><span>Payment due (days)</span><input class="input" id="setTerms" type="number" inputmode="numeric" value="${esc(st.TERMS_DAYS)}"></label>
+          <label class="field"><span>Sales tax %</span><input class="input" id="setTax" type="number" inputmode="decimal" step="0.01" value="${esc(st.TAX_RATE)}"></label>
+        </div>
+        <label class="field"><span>Tax line name</span><input class="input" id="setTaxLabel" value="${esc(st.TAX_LABEL)}"></label>
+        <div class="switch">
+          <div><div style="font-weight:800">Pause automation</div><div class="muted">Stops late reminders from going to customers</div></div>
+          <input type="checkbox" id="setPaused" ${st.AUTOMATION_PAUSED ? 'checked' : ''}>
+        </div>
+        <button class="btn gold" style="width:100%" onclick="saveSettings()">Save business info</button>
+      </div>
+      <div style="text-align:center;margin-top:14px"><button class="link" onclick="signOut()">Sign out of this phone</button></div>`;
+  }
+
+  function filterCustomers(q) {
+    const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    document.querySelectorAll('#custList .item').forEach(el => { el.style.display = words.every(w => el.dataset.s.indexOf(w) >= 0) ? '' : 'none'; });
+  }
+
+  const serviceOptions = cur => ['Weekly', 'Every 2 weeks', 'Jobs only'].map(s => `<option ${cur === s ? 'selected' : ''} value="${s}">${s === 'Jobs only' ? 'Jobs only (no mowing)' : s + ' mowing'}</option>`).join('');
+  const dayOptions = cur => [''].concat(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']).map(s => `<option ${cur === s ? 'selected' : ''} value="${s}">${s || 'Any day'}</option>`).join('');
+
+  /** Property fields, shared by the new-customer form (prefix "fp") and the property form (prefix "pp"). */
+  const propFields = (x, p) => `
+    <label class="field"><span>Address</span><input class="input" id="${x}Address" value="${esc(p.address)}" placeholder="22 Main St, Pottstown"></label>
+    <label class="field"><span>Short name (optional)</span><input class="input" id="${x}Label" value="${esc(p.label)}" placeholder="Blank = the street address"></label>
+    <label class="field"><span>Service</span><select class="input" id="${x}Service">${serviceOptions(p.service || 'Weekly')}</select></label>
+    <div class="two">
+      <label class="field"><span>Mowing rate</span><input class="input" id="${x}Rate" type="number" inputmode="decimal" step="0.01" value="${p.mowRate ? Number(p.mowRate).toFixed(2) : ''}" placeholder="$ per cut"></label>
+      <label class="field"><span>Mow day</span><select class="input" id="${x}Day">${dayOptions(p.mowDay || '')}</select></label>
+    </div>`;
+  const readProp = x => ({ address: $(x + 'Address').value, label: $(x + 'Label').value, service: $(x + 'Service').value, mowRate: $(x + 'Rate').value, mowDay: $(x + 'Day').value });
+
+  function editCustomer(id) {
+    const c = id ? custById(id) : { id: '', name: '', email: '', phone: '', address: '', active: true, notes: '' };
+    const props = id ? S.data.properties.filter(p => p.customerId === id).sort(byLabel) : [];
+    openSheet(`
+      <h3>${id ? 'Edit customer' : 'New customer'}</h3>
+      <label class="field"><span>Name (who pays)</span><input class="input" id="cName" value="${esc(c.name)}"></label>
+      <label class="field"><span>Email (bills go here)</span><input class="input" id="cEmail" type="email" autocapitalize="off" value="${esc(c.email)}"></label>
+      <label class="field"><span>Phone</span><input class="input" id="cPhone" type="tel" value="${esc(c.phone)}"></label>
+      <label class="field"><span>Billing address (optional)</span><input class="input" id="cAddress" value="${esc(c.address)}" placeholder="Where the bill goes, if not the property"></label>
+      <label class="field"><span>Notes</span><textarea class="input" id="cNotes">${esc(c.notes)}</textarea></label>
+      ${id ? `<div class="switch"><div><div style="font-weight:800">Active</div><div class="muted">Inactive customers and their properties are hidden from Log</div></div><input type="checkbox" id="cActive" ${c.active ? 'checked' : ''}></div>`
+        : `<div class="sec">First property</div>${propFields('fp', { service: 'Weekly' })}`}
+      <div class="row">
+        <button class="btn ghost grow" onclick="closeSheet()">Cancel</button>
+        <button class="btn gold grow" onclick="saveCustomer('${c.id}')">Save</button>
+      </div>
+      ${id ? `
+        <div class="sec">Properties</div>
+        <div class="card list">
+          ${props.map(p => `<div class="item row tap" onclick="editProperty('${p.id}')">
+            <div class="grow"><div style="font-weight:800${p.ownActive ? '' : ';opacity:.45'}">${esc(p.label)}</div>
+              <div class="muted">${esc(p.service)}${p.mowRate ? ' &middot; ' + money(p.mowRate) : ''}${p.mowDay ? ' &middot; ' + esc(p.mowDay) : ''}${p.ownActive ? '' : ' &middot; inactive'}</div></div>
+            <div style="color:var(--brass)">&rsaquo;</div></div>`).join('') || '<div class="empty">No properties yet.</div>'}
+          <button class="btn gold sm" style="margin-top:12px" onclick="editProperty('', '${c.id}')">+ Add property</button>
+        </div>` : ''}`);
+  }
+
+  async function saveCustomer(id) {
+    const payload = { id, name: $('cName').value, email: $('cEmail').value, address: $('cAddress').value, phone: $('cPhone').value,
+      notes: $('cNotes').value, active: id ? $('cActive').checked : true };
+    if (!id) payload.firstProperty = readProp('fp');
+    if (await run('saveCustomer', payload, 'Saved')) closeSheet();
+  }
+
+  function editProperty(id, customerId) {
+    const p = id ? propById(id) : { id: '', customerId, label: '', address: '', service: 'Weekly', mowRate: '', mowDay: '', ownActive: true, notes: '' };
+    const custs = S.data.customers.slice().sort(byName);
+    openSheet(`
+      <h3>${id ? 'Edit property' : 'New property'}</h3>
+      ${propFields('pp', p)}
+      <label class="field"><span>Billed to</span><select class="input" id="ppCust">${custs.map(c => `<option value="${c.id}" ${c.id === p.customerId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>
+      <label class="field"><span>Notes (gate code, dog, where to dump)</span><textarea class="input" id="ppNotes">${esc(p.notes)}</textarea></label>
+      ${id ? `<div class="switch"><div><div style="font-weight:800">Active</div><div class="muted">Inactive properties are hidden from Log</div></div><input type="checkbox" id="ppActive" ${p.ownActive ? 'checked' : ''}></div>` : ''}
+      <div class="row">
+        <button class="btn ghost grow" onclick="editCustomer('${p.customerId}')">Back</button>
+        <button class="btn gold grow" onclick="saveProperty('${p.id}')">Save</button>
+      </div>`);
+  }
+
+  async function saveProperty(id) {
+    const payload = Object.assign(readProp('pp'), { id, customerId: $('ppCust').value, notes: $('ppNotes').value, active: id ? $('ppActive').checked : true });
+    if (await run('saveProperty', payload, 'Saved')) editCustomer(payload.customerId);
+  }
+
+  function editPrice(id) {
+    const p = id ? priceById(id) : { id: '', name: '', price: '', kind: 'Service', active: true };
+    openSheet(`
+      <h3>${id ? 'Edit item' : 'New item'}</h3>
+      <label class="field"><span>Name</span><input class="input" id="pName" value="${esc(p.name)}"></label>
+      <label class="field"><span>Price</span><input class="input" id="pPrice" type="number" inputmode="decimal" step="0.01" value="${p.price > 0 ? Number(p.price).toFixed(2) : ''}" placeholder="Blank = price varies"></label>
+      <div class="muted" style="margin:-6px 2px 14px;font-size:12px">${id === MOWING ? 'Each property\'s own mowing rate wins. This is only used for properties without one.' : 'Leave it blank if the price changes every job. The app asks each time and remembers the last price at that property.'}</div>
+      <label class="field"><span>Shows as</span>
+        <select class="input" id="pKind">
+          <option ${p.kind === 'Service' ? 'selected' : ''} value="Service">Main service</option>
+          <option ${p.kind === 'Extra' ? 'selected' : ''} value="Extra">Extra</option>
+        </select></label>
+      ${id ? `<div class="switch"><div style="font-weight:800">Show in the app</div><input type="checkbox" id="pActive" ${p.active ? 'checked' : ''}></div>` : ''}
+      <div class="row">
+        <button class="btn ghost grow" onclick="closeSheet()">Cancel</button>
+        <button class="btn gold grow" onclick="savePrice('${p.id}')">Save</button>
+      </div>`);
+  }
+
+  async function savePrice(id) {
+    const ok = await run('savePrice', { id, name: $('pName').value, price: $('pPrice').value, kind: $('pKind').value, active: id ? $('pActive').checked : true }, 'Saved');
+    if (ok) closeSheet();
+  }
+
+  function editCrew(id) {
+    const c = id ? S.data.crew.find(x => x.id === id) : { id: '', name: '', pin: '', active: true, notes: '' };
+    openSheet(`
+      <h3>${id ? 'Edit crew member' : 'New crew member'}</h3>
+      <label class="field"><span>Name</span><input class="input" id="kName" value="${esc(c.name)}"></label>
+      <label class="field"><span>PIN (optional, 4 to 12 digits)</span><input class="input" id="kPin" inputmode="numeric" value="${esc(c.pin)}" placeholder="Blank = can not sign in"></label>
+      <div class="muted" style="margin:-6px 2px 14px;font-size:12px">With a PIN they open this same app on their phone and see only the Log tab: Mow List, properties, and their own recent work. No prices, no money. Jobs that need a price come to you.</div>
+      <label class="field"><span>Notes</span><textarea class="input" id="kNotes">${esc(c.notes)}</textarea></label>
+      ${id ? `<div class="switch"><div><div style="font-weight:800">Active</div><div class="muted">Inactive = PIN stops working</div></div><input type="checkbox" id="kActive" ${c.active ? 'checked' : ''}></div>` : ''}
+      <div class="row">
+        <button class="btn ghost grow" onclick="closeSheet()">Cancel</button>
+        <button class="btn gold grow" onclick="saveCrew('${c.id}')">Save</button>
+      </div>`);
+  }
+
+  async function saveCrew(id) {
+    const ok = await run('saveCrew', { id, name: $('kName').value, pin: $('kPin').value, notes: $('kNotes').value, active: id ? $('kActive').checked : true }, 'Saved');
+    if (ok) closeSheet();
+  }
+
+  function saveSettings() {
+    run('saveSettings', {
+      BUSINESS_NAME: $('setBiz').value, OWNER_NAME: $('setOwner').value, BUSINESS_PHONE: $('setPhone').value,
+      BUSINESS_EMAIL: $('setEmail').value, CHECKS_PAYABLE_TO: $('setPayable').value, MAILING_ADDRESS: $('setMail').value,
+      VENMO_HANDLE: $('setVenmo').value, TERMS_DAYS: $('setTerms').value, TAX_RATE: $('setTax').value, TAX_LABEL: $('setTaxLabel').value,
+      AUTOMATION_PAUSED: $('setPaused').checked,
+    }, 'Saved');
+  }
+
+  // ---------------- Start ----------------
+  /** The bill-day email links here with ?bills=1: land straight on Send Bills. */
+  function afterBoot() {
+    if (new URLSearchParams(location.search).get('bills') !== '1') return;
+    history.replaceState(null, '', location.pathname);
+    if (!owner()) return;
+    showTab('dash');
+    openSendBills();
+  }
+
+  S.pin = loadPin();
+  if (S.pin) {
+    run('bootstrap').then(ok => { if (ok) afterBoot(); else if (!S.data && !$('pinGate').classList.contains('on')) showPinScreen('Could not connect. Try again.'); });
+  } else {
+    showPinScreen();
+  }
+</script>
+</body>
+</html>
