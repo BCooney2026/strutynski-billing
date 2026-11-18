@@ -283,11 +283,20 @@
   .pick .x { background: transparent; border: 0; color: var(--red); font-size: 18px; font-weight: 800; padding: 4px 2px 4px 10px; cursor: pointer; }
   .grp { font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--leaf); padding: 12px 2px 2px; }
 
+  /* ---------- Demo mode ---------- */
+  #demoBar { display: none; position: sticky; top: 0; z-index: 12; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; background: rgba(11,23,16,.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+  body.demo #demoBar { display: block; }
+  body.demo .help-btn { top: calc(62px + env(safe-area-inset-top)); }
+  #demoBar .in { max-width: 640px; margin: 0 auto; display: flex; align-items: center; gap: 8px; }
+  #demoBar .tag { font-size: 11px; font-weight: 900; letter-spacing: 1.5px; color: #1a1408; background: var(--brass-grad); border-radius: 999px; padding: 4px 9px; }
+  #demoBar .msg { flex: 1; font-size: 12px; color: var(--muted); line-height: 1.3; }
+  #demoBar button { border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 10px; padding: 7px 10px; font-weight: 800; font-size: 12px; white-space: nowrap; cursor: pointer; }
   .tagline { text-align: center; margin: 28px 0 8px; font-family: var(--display); font-size: 11px; letter-spacing: 3px; color: rgba(212,176,106,.55); }
 </style>
 </head>
 <body>
 
+<div id="demoBar"><div class="in"><span class="tag">DEMO</span><span class="msg">Sample season. Tap anything. Nothing is real or sent.</span><button onclick="toggleDemoRole()" id="demoRole">Crew view</button><button onclick="openOutbox()" id="demoMail">Emails</button></div></div>
 <button class="help-btn" onclick="openHelp()" aria-label="Help"><span class="q">?</span>Help</button>
 <div class="hero" id="hero">
   <img src="banner.png" alt="Strutynski Landscaping" onerror="document.getElementById('hero').classList.add('noimg')">
@@ -375,6 +384,54 @@
   function forgetPin() { try { localStorage.removeItem(PIN_KEY); } catch (e) {} }
   function signOut() { if (!confirm('Sign out of this phone? You will need the PIN to get back in.')) return; forgetPin(); location.reload(); }
 
+  // ---------------- Demo mode (?demo=1) ----------------
+  // Loads demo-engine.js: the real backend running in this browser on a made-up season.
+  // No PIN, no Google, no email. Reload = fresh demo.
+  const DEMO = new URLSearchParams(location.search).has('demo');
+  let demoEngine = null;
+  function loadDemo() {
+    if (!demoEngine) demoEngine = new Promise((resolve, reject) => {
+      const tag = document.createElement('script');
+      tag.src = 'demo-engine.js?v=1';
+      tag.onload = () => resolve(window.StrutDemo);
+      tag.onerror = () => { demoEngine = null; reject(new Error('Could not load the demo. Check your signal.')); };
+      document.head.appendChild(tag);
+    });
+    return demoEngine;
+  }
+  async function demoCall(action, payload) {
+    const engine = await loadDemo();
+    await new Promise(r => setTimeout(r, 150));
+    return engine.call(S.pin, action, payload);
+  }
+  function toggleDemoRole() {
+    const toCrew = S.pin === window.StrutDemo.OWNER_PIN;
+    S.pin = toCrew ? window.StrutDemo.CREW_PIN : window.StrutDemo.OWNER_PIN;
+    S.propertyId = ''; S.items = {}; S.itemPrice = {}; S.custom = null; S.credit = null; S.note = ''; S.doneBy = '';
+    $('demoRole').textContent = toCrew ? 'Owner view' : 'Crew view';
+    run('bootstrap', null, toCrew ? 'Now seeing what Tyler (crew) sees' : 'Back to the owner view');
+  }
+  function updateDemoBar() { if (DEMO && window.StrutDemo) $('demoMail').textContent = 'Emails (' + window.StrutDemo.mails().length + ')'; }
+  function openOutbox() {
+    const list = window.StrutDemo ? window.StrutDemo.mails() : [];
+    openSheet(`
+      <h3>Emails the app sent</h3>
+      <div class="muted" style="margin:-6px 0 12px">In the demo nothing actually goes out. These are exactly what customers and the owner get. Newest first.</div>
+      <div class="card list">${list.map((m, i) => `
+        <div class="item tap" onclick="openMail(${i})"><div style="font-weight:800">${esc(m.subject)}</div><div class="muted ell">To: ${esc(m.to)}</div></div>`).join('') || '<div class="empty">Nothing yet.</div>'}
+      </div>
+      <button class="btn ghost big" onclick="closeSheet()">Close</button>`);
+  }
+  function openMail(i) {
+    const m = window.StrutDemo.mails()[i];
+    openSheet(`
+      <h3 style="font-size:17px">${esc(m.subject)}</h3>
+      <div class="muted">To: ${esc(m.to)}</div>
+      <iframe id="mailFrame" title="Email preview" style="width:100%;height:66vh;border:0;border-radius:12px;margin-top:10px;background:#0c1a12"></iframe>
+      <button class="btn ghost big" onclick="openOutbox()">Back to emails</button>`);
+    $('mailFrame').srcdoc = m.html;
+  }
+
   // ---------------- Backend ----------------
   // The Apps Script web app URL (Deploy > Manage deployments, ends in /exec). Clean /macros/s/ form only, never /u/N/.
   const API_URL = 'https://script.google.com/macros/s/AKfycbwvW8Zr7KBMxI2NwnKt-O4u0KGYVLQbJOnvKIUc1VUjQuX46WgXCriBWudXwmDrCfweHw/exec';
@@ -384,6 +441,7 @@
    * text/plain avoids a CORS preflight; credentials 'omit' keeps Google sign-ins out of it.
    */
   async function call(action, payload) {
+    if (DEMO) return demoCall(action, payload);
     if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(API_URL)) throw new Error('App is not connected yet (API_URL not set).');
     let res;
     try {
@@ -478,6 +536,7 @@
     if (!S.doneBy) S.doneBy = S.data.user;
     renderLog();
     if (owner()) { renderMoney(); renderSettings(); }
+    updateDemoBar();
   }
 
   // =====================================================================
@@ -1691,8 +1750,11 @@
     openSendBills();
   }
 
-  S.pin = loadPin();
-  if (S.pin) {
+  if (DEMO) {
+    document.body.classList.add('demo');
+    S.pin = '9999';
+    run('bootstrap').then(ok => { if (ok) toast('Demo: a made-up season for a growing landscaping company'); });
+  } else if ((S.pin = loadPin())) {
     run('bootstrap').then(ok => { if (ok) afterBoot(); else if (!S.data && !$('pinGate').classList.contains('on')) showPinScreen('Could not connect. Try again.'); });
   } else {
     showPinScreen();
