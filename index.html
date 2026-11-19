@@ -209,6 +209,10 @@
   #toast { position: fixed; left: 50%; bottom: 104px; transform: translateX(-50%) translateY(20px); background: var(--brass-grad); color: #1a1408; padding: 12px 18px; border-radius: 14px; font-weight: 800; font-size: 14px; opacity: 0; transition: all .25s; z-index: 40; max-width: 90vw; text-align: center; pointer-events: none; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
   #toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
   #toast.err { background: var(--red); color: #fff; }
+  .ask-bg { position: fixed; inset: 0; background: rgba(3,8,5,.7); z-index: 25; display: none; align-items: center; justify-content: center; padding: 20px; }
+  .ask-bg.on { display: flex; }
+  .ask { background: linear-gradient(180deg, #17301f, var(--bg2)); border: 1px solid var(--line); border-radius: 18px; padding: 20px 18px 16px; width: 100%; max-width: 420px; animation: up .2s ease both; }
+  .ask p { margin: 0 0 16px; font-size: 16px; line-height: 1.4; }
   #busy { position: fixed; inset: 0; background: rgba(11,23,16,.45); z-index: 30; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; }
   #busy.on { display: flex; }
   #busy .ring { width: 46px; height: 46px; border-radius: 50%; border: 3px solid rgba(212,176,106,.2); border-top-color: var(--brass); animation: spin .8s linear infinite; }
@@ -330,6 +334,7 @@
   </div>
 </div>
 <div id="busy"><div class="ring"></div><div id="busyMsg"></div></div>
+<div class="ask-bg" id="askBg"><div class="ask"><p id="askMsg"></p><div class="row"><button class="btn ghost grow" id="askNo">Cancel</button><button class="btn gold grow" id="askYes">OK</button></div></div></div>
 <div id="toast"></div>
 
 <script>
@@ -383,7 +388,7 @@
   function loadPin() { try { return localStorage.getItem(PIN_KEY) || ''; } catch (e) { return ''; } }
   function savePin(pin) { try { localStorage.setItem(PIN_KEY, pin); } catch (e) {} }
   function forgetPin() { try { localStorage.removeItem(PIN_KEY); } catch (e) {} }
-  function signOut() { if (!confirm('Sign out of this phone? You will need the PIN to get back in.')) return; forgetPin(); location.reload(); }
+  async function signOut() { if (!await ask('Sign out of this phone? You will need the PIN to get back in.', 'Sign out', true)) return; forgetPin(); location.reload(); }
 
   // ---------------- Demo mode (?demo=1) ----------------
   // Loads demo-engine.js: the real backend running in this browser on a made-up season.
@@ -393,7 +398,7 @@
   function loadDemo() {
     if (!demoEngine) demoEngine = new Promise((resolve, reject) => {
       const tag = document.createElement('script');
-      tag.src = 'demo-engine.js?v=4';  // bump whenever demo-engine.js changes, or phones keep the old one
+      tag.src = 'demo-engine.js?v=5';  // bump whenever demo-engine.js changes, or phones keep the old one
       tag.onload = () => resolve(window.StrutDemo);
       tag.onerror = () => { demoEngine = null; reject(new Error('Could not load the demo. Check your signal.')); };
       document.head.appendChild(tag);
@@ -524,6 +529,20 @@
   }
   function openSheet(html) { $('sheet').innerHTML = html; $('sheetBg').classList.add('on'); $('sheet').scrollTop = 0; }
   function closeSheet() { $('sheetBg').classList.remove('on'); }
+
+  /** The app's own "are you sure?" box. Browser confirm() popups are blocked in some places (desktop panes,
+   *  some home-screen apps), so a tap silently did nothing. Resolves true on OK. */
+  function ask(msg, okLabel, danger) {
+    return new Promise(resolve => {
+      $('askMsg').textContent = msg;
+      const yes = $('askYes'), no = $('askNo');
+      yes.textContent = okLabel || 'OK';
+      yes.className = 'btn grow ' + (danger ? 'danger' : 'gold');
+      const done = v => { $('askBg').classList.remove('on'); yes.onclick = no.onclick = null; resolve(v); };
+      yes.onclick = () => done(true); no.onclick = () => done(false);
+      $('askBg').classList.add('on');
+    });
+  }
 
   function showTab(tab) {
     S.tab = tab;
@@ -1062,7 +1081,7 @@
   async function sendChecked() {
     const ids = sheetChecked().map(i => i.value);
     if (!ids.length || S.busy) return;
-    if (!confirm(`Send ${plural(ids.length, 'bill')} now?`)) return;
+    if (!await ask(`Send ${plural(ids.length, 'bill')} now?`, 'Send')) return;
     setBusy(true, `Sending ${plural(ids.length, 'bill')}... a few seconds each`);
     try {
       const res = await call('sendBills', { customerIds: ids });
@@ -1154,10 +1173,10 @@
       </div>`);
   }
 
-  function voidJob(i) {
+  async function voidJob(i) {
     const j = S.data.recent[i];
     const what = j.billed === 'some' ? 'the unbilled part of this job' : 'this job';
-    if (!confirm(`Remove ${what} (${j.propertyLabel}, ${niceDate(j.date)})? It will not be billed.`)) return;
+    if (!await ask(`Remove ${what} (${j.propertyLabel}, ${niceDate(j.date)})? It will not be billed.`, 'Remove', true)) return;
     run('voidWork', j.ids, 'Removed');
   }
 
@@ -1379,6 +1398,7 @@
 
       <div class="sec">Not billed yet</div>
       <div class="card list" style="padding:4px 14px">${A.unbilled.length ? lines : '<div class="empty">Nothing waiting to be billed.</div>'}</div>
+      <button class="btn ghost" style="width:100%;margin-top:10px" onclick="addLine()">+ Add a job</button>
       ${A.unbilled.some(u => !u.unpriced) ? `<label class="field" style="margin-top:12px"><span>Note on the bill (optional)</span>
           <textarea class="input" id="billNote" style="min-height:64px" placeholder="Thanks for a great season! See you in the spring."></textarea></label>
         <button class="btn gold big" id="billBtn" style="margin-top:4px" onclick="billChecked()"></button>
@@ -1412,21 +1432,27 @@
   }
 
   async function removeLine(id) {
-    if (!confirm('Remove this line? It will not be billed.')) return;
+    if (!await ask('Delete this line? It will not be billed.', 'Delete', true)) return;
     const cid = S.acct.customer.id;
     if (await run('voidWork', [id], 'Removed')) { openAccount(cid); if (S.tab === 'dash') loadDash(); }
   }
 
-  /** Owner fixes one unbilled line: date, description, qty, price each. Billed lines are fixed by voiding the bill. */
+  /** Properties on the open account (inactive ones too, so old lines can still be moved). */
+  const acctProps = () => S.data.properties.filter(p => p.customerId === S.acct.customer.id).sort((a, b) => String(a.label).localeCompare(String(b.label)));
+  const propOptions = cur => acctProps().map(p => `<option value="${esc(p.id)}" ${p.id === cur ? 'selected' : ''}>${esc(p.label)}</option>`).join('');
+
+  /** Edit everything on one unbilled line: property, date, description, qty, price. Delete is here too. */
   function editLine(id) {
     const u = S.acct.unbilled.find(x => x.id === id);
     if (!u) return;
+    const prop = acctProps().find(p => p.label === u.propertyLabel);
     const each = u.amount === null ? '' : Math.abs(u.amount / (u.qty || 1)).toFixed(2);
     openSheet(`
       <h3>Edit line</h3>
-      <div class="muted" style="margin:-6px 0 10px">${esc(u.propertyLabel)}${u.amount < 0 ? ' &middot; credit' : ''}</div>
+      ${u.amount < 0 ? '<div class="muted" style="margin:-6px 0 10px">This is a credit. It comes off the bill.</div>' : ''}
+      <label class="field"><span>Property</span><select class="input" id="elProp">${propOptions(prop ? prop.id : '')}</select></label>
       <label class="field"><span>Date</span><input class="input" id="elDate" type="date" value="${esc(u.date)}" max="${S.data.today}"></label>
-      <label class="field"><span>Description</span><input class="input" id="elDesc" value="${esc(u.description)}"></label>
+      <label class="field"><span>Description (prints on the bill)</span><input class="input" id="elDesc" value="${esc(u.description)}"></label>
       <div class="two">
         <label class="field"><span>Qty</span><input class="input" id="elQty" type="number" inputmode="numeric" min="1" step="1" value="${u.qty || 1}"></label>
         <label class="field"><span>${u.amount < 0 ? 'Credit' : 'Price'} each</span><input class="input" id="elPrice" type="number" inputmode="decimal" step="0.01" value="${each}"></label>
@@ -1434,12 +1460,57 @@
       <div class="row">
         <button class="btn ghost grow" onclick="renderAccount()">Back</button>
         <button class="btn gold grow" onclick="saveLine('${esc(u.id)}')">Save</button>
-      </div>`);
+      </div>
+      <button class="btn danger big" style="margin-top:12px" onclick="removeLine('${esc(u.id)}')">Delete this line</button>`);
   }
 
   async function saveLine(id) {
     const cid = S.acct.customer.id;
-    const ok = await run('editWork', { id, date: $('elDate').value, description: $('elDesc').value, qty: $('elQty').value, price: $('elPrice').value }, 'Saved');
+    const ok = await run('editWork', { id, propertyId: $('elProp').value, date: $('elDate').value, description: $('elDesc').value, qty: $('elQty').value, price: $('elPrice').value }, 'Saved');
+    if (ok) { openAccount(cid); if (S.tab === 'dash') loadDash(); }
+  }
+
+  /** Add a job straight onto this customer's account: any property, any past date, any price. */
+  function addLine() {
+    const props = acctProps().filter(p => p.ownActive !== false);
+    if (!props.length) { toast('This customer has no property yet. Add one in Settings.', true); return; }
+    const items = S.data.prices.filter(p => p.active !== false);
+    openSheet(`
+      <h3>Add a job</h3>
+      <label class="field"><span>Property</span><select class="input" id="alProp" onchange="fillAddPrice()">${propOptions(props[0].id)}</select></label>
+      <label class="field"><span>Date</span><input class="input" id="alDate" type="date" value="${S.data.today}" max="${S.data.today}"></label>
+      <label class="field"><span>What</span><select class="input" id="alItem" onchange="fillAddPrice()">
+        ${items.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}
+        <option value="CUSTOM">Other (type it below)</option>
+        <option value="CREDIT">Credit (comes off the bill)</option>
+      </select></label>
+      <label class="field"><span>Description (prints on the bill)</span><input class="input" id="alDesc" placeholder="Blank = the item name"></label>
+      <div class="two">
+        <label class="field"><span>Qty</span><input class="input" id="alQty" type="number" inputmode="numeric" min="1" step="1" value="1"></label>
+        <label class="field"><span id="alPriceLbl">Price each</span><input class="input" id="alPrice" type="number" inputmode="decimal" step="0.01" placeholder="0.00"></label>
+      </div>
+      <div class="row">
+        <button class="btn ghost grow" onclick="renderAccount()">Back</button>
+        <button class="btn gold grow" onclick="saveNewLine()">Add</button>
+      </div>`);
+    fillAddPrice();
+  }
+
+  /** Prefill the price: the property's mowing rate, the item's set price, or the last price charged there. */
+  function fillAddPrice() {
+    const pid = $('alProp').value, id = $('alItem').value, prop = propById(pid), item = priceById(id), lp = S.data.lastPrices || {};
+    $('alPriceLbl').textContent = id === 'CREDIT' ? 'Credit each' : 'Price each';
+    let v = 0;
+    if (id === MOWING && prop && prop.mowRate > 0) v = prop.mowRate;
+    else if (item && item.price > 0) v = item.price;
+    else v = lp[pid + '|' + id] || lp[id] || 0;
+    $('alPrice').value = v > 0 ? Number(v).toFixed(2) : '';
+  }
+
+  async function saveNewLine() {
+    const cid = S.acct.customer.id;
+    const ok = await run('addWork', { propertyId: $('alProp').value, date: $('alDate').value, itemId: $('alItem').value,
+      description: $('alDesc').value, qty: $('alQty').value, price: $('alPrice').value }, 'Added');
     if (ok) { openAccount(cid); if (S.tab === 'dash') loadDash(); }
   }
 
@@ -1484,7 +1555,7 @@
     if (!items.length) return;
     const m = billMath(items.reduce((t, i) => t + Number(i.dataset.amt), 0));
     const how = c.email ? `and email it to ${c.email}` : '(no email on file, so you will hand them the PDF)';
-    if (!confirm(`Create one bill for ${money(m.total)} ${how}?`)) return;
+    if (!await ask(`Create one bill for ${money(m.total)} ${how}?`, 'Create bill')) return;
     setBusy(true, 'Creating the bill...');
     try {
       const res = await call('billSelected', { customerId: c.id, entryIds: items.map(i => i.value), message: $('billNote') ? $('billNote').value : '' });
@@ -1589,8 +1660,8 @@
     if (ok) { closeSheet(); if (S.tab === 'dash') loadDash(); }
   }
 
-  function resend(id) {
-    if (!confirm('Email bill #' + id + ' again?')) return;
+  async function resend(id) {
+    if (!await ask('Email bill #' + id + ' again?', 'Send')) return;
     run('resendInvoice', id, 'Bill sent');
   }
 
