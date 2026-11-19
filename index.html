@@ -395,7 +395,7 @@
   function loadDemo() {
     if (!demoEngine) demoEngine = new Promise((resolve, reject) => {
       const tag = document.createElement('script');
-      tag.src = 'demo-engine.js?v=5';  // bump whenever demo-engine.js changes, or phones keep the old one
+      tag.src = 'demo-engine.js?v=6';  // bump whenever demo-engine.js changes, or phones keep the old one
       tag.onload = () => resolve(window.StrutDemo);
       tag.onerror = () => { demoEngine = null; reject(new Error('Could not load the demo. Check your signal.')); };
       document.head.appendChild(tag);
@@ -979,7 +979,15 @@
 
   // ----- Heads up cards on the Log tab (owner) -----
   function readyCard(where) {
-    const r = S.data.readyBills;
+    const r = S.data.readyBills, now = S.data.readyNow;
+    // Mid-month: nothing from last month waiting, but this month's work can be billed any time (Dash only, no nagging on Log).
+    if (!r && now && where !== 'log') return `
+      <div class="card" style="margin-top:0">
+        <div style="font-weight:800">Bill any time</div>
+        <div class="muted" style="margin-top:4px">${plural(now.customers.length, 'customer')} &middot; <b style="color:var(--ink)">${money(now.total)}</b> with tax logged and not billed.
+          Bill day is ${niceDate(S.data.nextBilling)}, or send it now.</div>
+        <button class="btn ghost big" style="margin-top:12px" onclick="openSendBills('today')">Bill everything to date</button>
+      </div>`;
     if (!r) return '';
     const n = r.customers.length;
     if (where === 'log') return `
@@ -991,7 +999,7 @@
       <div class="card nudge" style="margin-top:0">
         <h4>${esc(r.month)} bills are ready</h4>
         <div class="muted">${plural(n, 'customer')} &middot; <b style="color:var(--ink)">${money(r.total)}</b> with tax. Nobody gets one until you send it.</div>
-        <button class="btn gold big" style="margin-top:12px" onclick="openSendBills()">Send ${esc(r.month)} bills</button>
+        <button class="btn gold big" style="margin-top:12px" onclick="openSendBills('month')">Send ${esc(r.month)} bills</button>
       </div>`;
   }
 
@@ -1032,12 +1040,25 @@
     if (await run('priceWork', { ids: [id], price: $('pw_' + id).value }, 'Priced')) openPricing();
   }
 
-  function openSendBills() {
-    const r = S.data.readyBills;
+  /**
+   * Send Bills, two ways. 'month' = last month's work (bill day on the 1st). 'today' = everything through today
+   * (bill whenever). The switch only shows when the two would send different amounts.
+   */
+  function openSendBills(mode) {
+    const month = S.data.readyBills, now = S.data.readyNow;
+    S.sendMode = mode || S.sendMode || (month ? 'month' : 'today');
+    if (S.sendMode === 'month' && !month) S.sendMode = 'today';
+    const r = S.sendMode === 'today' ? now : month;
     if (!r) { toast('Nothing waiting to bill. You are all caught up.'); return; }
+    const both = month && now && Math.abs(now.total - month.total) > 0.004;
     openSheet(`
-      <h3>Send ${esc(r.month)} bills</h3>
-      <div class="muted" style="margin:-6px 0 12px">Uncheck anyone to skip for now. Tap a name to see every line. Totals include tax.</div>
+      <h3>${S.sendMode === 'today' ? 'Bill everything to date' : 'Send ' + esc(r.month) + ' bills'}</h3>
+      ${both ? `<div class="seg" style="margin:-4px 0 12px">
+        <button class="${S.sendMode === 'month' ? 'on' : ''}" onclick="openSendBills('month')">${esc(month.month)} work</button>
+        <button class="${S.sendMode === 'today' ? 'on' : ''}" onclick="openSendBills('today')">Everything to date</button>
+      </div>` : ''}
+      <div class="muted" style="margin:-6px 0 12px">${S.sendMode === 'today' ? 'All priced work through today.' : 'Work done in ' + esc(r.month) + '.'}
+        Uncheck anyone to skip for now. Tap a name to see every line. Totals include tax.</div>
       <div class="card list" style="padding:4px 14px">
         ${r.customers.map(c => `
           <label class="pick">
@@ -1071,7 +1092,7 @@
     if (!await ask(`Send ${plural(ids.length, 'bill')} now?`, 'Send')) return;
     setBusy(true, `Sending ${plural(ids.length, 'bill')}... a few seconds each`);
     try {
-      const res = await call('sendBills', { customerIds: ids });
+      const res = await call('sendBills', { customerIds: ids, through: S.sendMode === 'today' ? 'today' : 'month' });
       closeSheet(); setData(res); showTab('money');
       const t = res.sent;
       toast(`Sent ${plural(t.count, 'bill')} for ${money(t.total)}` + (t.handOver.length ? `. Hand deliver: ${t.handOver.join(', ')}` : ''));
@@ -1867,7 +1888,7 @@
     history.replaceState(null, '', location.pathname);
     if (!owner()) return;
     showTab('dash');
-    openSendBills();
+    openSendBills('month');
   }
 
   if (DEMO) {
