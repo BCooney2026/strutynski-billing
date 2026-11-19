@@ -280,6 +280,7 @@
   .pick { display: flex; align-items: flex-start; gap: 12px; padding: 12px 2px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
   .pick:last-child { border-bottom: 0; }
   .pick input { width: 22px; height: 22px; accent-color: var(--brass); flex: none; margin-top: 1px; }
+  .pick .x.edit { color: var(--brass); padding-left: 6px; }
   .pick .x { background: transparent; border: 0; color: var(--red); font-size: 18px; font-weight: 800; padding: 4px 2px 4px 10px; cursor: pointer; }
   .grp { font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--leaf); padding: 12px 2px 2px; }
 
@@ -392,7 +393,7 @@
   function loadDemo() {
     if (!demoEngine) demoEngine = new Promise((resolve, reject) => {
       const tag = document.createElement('script');
-      tag.src = 'demo-engine.js?v=3';  // bump whenever demo-engine.js changes, or phones keep the old one
+      tag.src = 'demo-engine.js?v=4';  // bump whenever demo-engine.js changes, or phones keep the old one
       tag.onload = () => resolve(window.StrutDemo);
       tag.onerror = () => { demoEngine = null; reject(new Error('Could not load the demo. Check your signal.')); };
       document.head.appendChild(tag);
@@ -1368,6 +1369,7 @@
           <input type="checkbox" value="${esc(u.id)}" data-amt="${u.amount}" checked onchange="updateBillBtn()">
           <div class="grow"><div style="font-weight:700">${esc(u.description)}${u.qty > 1 ? ' x' + u.qty : ''}</div><div class="muted">${niceDate(u.date)}${u.doneBy ? ' &middot; ' + esc(u.doneBy) : ''}</div></div>
           <div class="amt">${money(u.amount)}</div>
+          <button class="x edit" title="Edit" onclick="event.preventDefault(); event.stopPropagation(); editLine('${esc(u.id)}')">&#9998;</button>
           <button class="x" title="Remove" onclick="event.preventDefault(); event.stopPropagation(); removeLine('${esc(u.id)}')">&#10005;</button>
         </label>`);
     }).join('');
@@ -1393,6 +1395,7 @@
               <button class="btn gold sm" onclick="closeSheet(); openPay('${esc(i.id)}')">Got paid</button>
               ${i.pdfUrl ? `<a class="btn ghost sm" href="${i.pdfUrl}" target="_blank">PDF</a>` : ''}
               ${i.email ? `<button class="btn ghost sm" onclick="resend('${esc(i.id)}')">Resend</button>` : ''}
+              ${i.paid ? '' : `<button class="btn danger sm" onclick="askVoid('${esc(i.id)}')">Void</button>`}
             </div>
           </div>`).join('') : '<div class="empty">Nothing open. All paid up.</div>'}
       </div>
@@ -1412,6 +1415,51 @@
     if (!confirm('Remove this line? It will not be billed.')) return;
     const cid = S.acct.customer.id;
     if (await run('voidWork', [id], 'Removed')) { openAccount(cid); if (S.tab === 'dash') loadDash(); }
+  }
+
+  /** Owner fixes one unbilled line: date, description, qty, price each. Billed lines are fixed by voiding the bill. */
+  function editLine(id) {
+    const u = S.acct.unbilled.find(x => x.id === id);
+    if (!u) return;
+    const each = u.amount === null ? '' : Math.abs(u.amount / (u.qty || 1)).toFixed(2);
+    openSheet(`
+      <h3>Edit line</h3>
+      <div class="muted" style="margin:-6px 0 10px">${esc(u.propertyLabel)}${u.amount < 0 ? ' &middot; credit' : ''}</div>
+      <label class="field"><span>Date</span><input class="input" id="elDate" type="date" value="${esc(u.date)}" max="${S.data.today}"></label>
+      <label class="field"><span>Description</span><input class="input" id="elDesc" value="${esc(u.description)}"></label>
+      <div class="two">
+        <label class="field"><span>Qty</span><input class="input" id="elQty" type="number" inputmode="numeric" min="1" step="1" value="${u.qty || 1}"></label>
+        <label class="field"><span>${u.amount < 0 ? 'Credit' : 'Price'} each</span><input class="input" id="elPrice" type="number" inputmode="decimal" step="0.01" value="${each}"></label>
+      </div>
+      <div class="row">
+        <button class="btn ghost grow" onclick="renderAccount()">Back</button>
+        <button class="btn gold grow" onclick="saveLine('${esc(u.id)}')">Save</button>
+      </div>`);
+  }
+
+  async function saveLine(id) {
+    const cid = S.acct.customer.id;
+    const ok = await run('editWork', { id, date: $('elDate').value, description: $('elDesc').value, qty: $('elQty').value, price: $('elPrice').value }, 'Saved');
+    if (ok) { openAccount(cid); if (S.tab === 'dash') loadDash(); }
+  }
+
+  /** Void an unpaid bill. Fix = its work goes back to "Not billed" to correct and bill again. Drop = the work goes too. */
+  function askVoid(invoiceId) {
+    const i = S.acct.open.find(x => String(x.id) === String(invoiceId));
+    openSheet(`
+      <h3>Void bill #${esc(invoiceId)}?</h3>
+      <div class="muted" style="margin:-6px 0 14px">${i ? money(i.balance) + ' &middot; ' + niceDate(i.invoiceDate) + '. ' : ''}It stays in the records marked Void and stops late reminders.
+        The customer is <b>not</b> emailed, so tell them the old bill is cancelled.</div>
+      <button class="btn gold big" onclick="doVoid('${esc(invoiceId)}', false)">Void and fix the work</button>
+      <div class="muted" style="margin:6px 2px 14px">The work goes back to "Not billed" so you can edit it and bill again.</div>
+      <button class="btn danger big" onclick="doVoid('${esc(invoiceId)}', true)">Void and delete the work</button>
+      <div class="muted" style="margin:6px 2px 14px">For a bill that should never have gone out.</div>
+      <button class="btn ghost big" onclick="renderAccount()">Cancel</button>`);
+  }
+
+  async function doVoid(invoiceId, dropWork) {
+    const cid = S.acct.customer.id;
+    if (await run('voidInvoice', { invoiceId, dropWork }, 'Bill #' + invoiceId + ' voided')) { openAccount(cid); if (S.tab === 'dash') loadDash(); }
   }
 
   /** Same math as the server's invoiceMath_: tax once on the work subtotal, rounded once. */
