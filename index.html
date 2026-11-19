@@ -122,9 +122,6 @@
   .chip .p { color: var(--muted); font-weight: 600; }
   .chip.sel { border-color: var(--brass); background: rgba(212,176,106,.12); box-shadow: 0 0 18px rgba(212,176,106,.18); }
   .chip.sel .p { color: var(--brass); }
-  .qty { display: inline-flex; align-items: center; gap: 7px; margin-left: 2px; font-weight: 800; }
-  .qty button { width: 30px; height: 30px; border-radius: 50%; border: 0; background: var(--brass-grad); color: #1a1408; font-weight: 800; font-size: 17px; line-height: 30px; padding: 0; display: grid; place-items: center; cursor: pointer; }
-  .qty .n { min-width: 14px; text-align: center; color: var(--brass); }
 
   /* ---------- Forms ---------- */
   .field { display: block; margin-bottom: 13px; }
@@ -344,7 +341,7 @@
     tab: 'log',
     date: '',
     propertyId: '',
-    items: {},      // itemId -> qty
+    items: {},      // itemId -> 1 (picked)
     itemPrice: {},  // itemId -> price typed this time, for "price varies" items
     custom: null,   // { description, price } when "+ Other" is open (owner)
     credit: null,   // { description, price } when "- Credit" is open (owner)
@@ -603,12 +600,9 @@
     const chip = p => {
       const sel = S.items[p.id];
       const priceTag = !own ? '' : varies(p.id) ? (sel && S.itemPrice[p.id] ? money(S.itemPrice[p.id]) : 'price?') : money(fixedPrice(p.id));
-      const qty = sel && p.id !== MOWING
-        ? `<span class="qty"><button onclick="event.stopPropagation(); bump('${p.id}', -1)">&minus;</button><span class="n">${sel}</span><button onclick="event.stopPropagation(); bump('${p.id}', 1)">+</button></span>`
-        : '';
-      // A div, not a button: the +/- stepper buttons live inside it, and buttons cannot nest.
-      return `<div class="chip ${sel ? 'sel' : ''}" role="button" tabindex="0" onclick="toggleItem('${p.id}')">
-        ${esc(p.name)}${priceTag ? ` <span class="p">${priceTag}</span>` : ''}${qty}</div>`;
+      // One tap = one job at one price. No quantity: Stephen prices clean ups, mulch, weeding as one number.
+      return `<button class="chip ${sel ? 'sel' : ''}" onclick="toggleItem('${p.id}')">
+        ${esc(p.name)}${priceTag ? ` <span class="p">${priceTag}</span>` : ''}</button>`;
     };
     const people = [d.user].concat(d.crewNames || []);
 
@@ -651,14 +645,13 @@
         <button class="chip ${S.credit ? 'sel' : ''}" onclick="toggleCredit()">&minus; Credit</button>` : ''}
       </div>
       ${own ? Object.keys(S.items).filter(varies).map(id => {
-        const p = priceById(id), q = S.items[id];
+        const p = priceById(id);
         return `
         <div class="card" style="margin-top:12px">
-          <label class="field" style="margin:0"><span>${esc(p.name)}: price ${q > 1 ? 'each ' : ''}this time</span>
+          <label class="field" style="margin:0"><span>${esc(p.name)}: price this time</span>
             <input class="input" id="vp_${id}" type="number" inputmode="decimal" step="0.01" value="${esc(S.itemPrice[id] || '')}" placeholder="0.00"
               oninput="S.itemPrice['${id}'] = this.value; updateLogButton()"></label>
           ${id === MOWING && prop ? `<div class="muted" style="margin-top:8px;font-size:12px">Tip: set a mowing rate on ${esc(prop.label)} (Settings) and this box goes away.</div>` : ''}
-          ${q > 1 ? `<div class="muted" style="margin-top:6px">${q} x price each</div>` : ''}
         </div>`;
       }).join('') : ''}
       ${!own && Object.keys(S.items).length ? '<div class="muted" style="margin:10px 2px 0">The office sets the price. Just log what you did.</div>' : ''}
@@ -875,12 +868,6 @@
     if (box && !box.value) box.focus();
   }
 
-  function bump(id, delta) {
-    const next = (S.items[id] || 0) + delta;
-    if (next <= 0) delete S.items[id]; else S.items[id] = Math.min(next, 999);
-    renderLog();
-  }
-
   function pickOther(i) {
     const o = S.data.otherSuggestions[i];
     S.custom = { description: o.description, price: o.price };
@@ -1025,7 +1012,7 @@
     const lp = S.data.lastPrices || {};
     openSheet(`
       <h3>Set prices</h3>
-      <div class="muted" style="margin:-6px 0 12px">Price each, times the qty. Filled in with what you charged last time there.</div>
+      <div class="muted" style="margin:-6px 0 12px">Filled in with what you charged last time there.</div>
       <div class="card list">
         ${u.map(w => {
           const last = lp[w.propertyId + '|' + w.itemId] || lp[w.itemId] || '';
@@ -1453,10 +1440,10 @@
       <label class="field"><span>Property</span><select class="input" id="elProp">${propOptions(prop ? prop.id : '')}</select></label>
       <label class="field"><span>Date</span><input class="input" id="elDate" type="date" value="${esc(u.date)}" max="${S.data.today}"></label>
       <label class="field"><span>Description (prints on the bill)</span><input class="input" id="elDesc" value="${esc(u.description)}"></label>
-      <div class="two">
-        <label class="field"><span>Qty</span><input class="input" id="elQty" type="number" inputmode="numeric" min="1" step="1" value="${u.qty || 1}"></label>
+      ${u.qty > 1 ? `<div class="two">
+        <label class="field"><span>Qty</span><input class="input" id="elQty" type="number" inputmode="numeric" min="1" step="1" value="${u.qty}"></label>
         <label class="field"><span>${u.amount < 0 ? 'Credit' : 'Price'} each</span><input class="input" id="elPrice" type="number" inputmode="decimal" step="0.01" value="${each}"></label>
-      </div>
+      </div>` : `<label class="field"><span>${u.amount < 0 ? 'Credit amount' : 'Price'}</span><input class="input" id="elPrice" type="number" inputmode="decimal" step="0.01" value="${each}"></label>`}
       <div class="row">
         <button class="btn ghost grow" onclick="renderAccount()">Back</button>
         <button class="btn gold grow" onclick="saveLine('${esc(u.id)}')">Save</button>
@@ -1466,7 +1453,7 @@
 
   async function saveLine(id) {
     const cid = S.acct.customer.id;
-    const ok = await run('editWork', { id, propertyId: $('elProp').value, date: $('elDate').value, description: $('elDesc').value, qty: $('elQty').value, price: $('elPrice').value }, 'Saved');
+    const ok = await run('editWork', { id, propertyId: $('elProp').value, date: $('elDate').value, description: $('elDesc').value, qty: $('elQty') ? $('elQty').value : 1, price: $('elPrice').value }, 'Saved');
     if (ok) { openAccount(cid); if (S.tab === 'dash') loadDash(); }
   }
 
@@ -1485,10 +1472,7 @@
         <option value="CREDIT">Credit (comes off the bill)</option>
       </select></label>
       <label class="field"><span>Description (prints on the bill)</span><input class="input" id="alDesc" placeholder="Blank = the item name"></label>
-      <div class="two">
-        <label class="field"><span>Qty</span><input class="input" id="alQty" type="number" inputmode="numeric" min="1" step="1" value="1"></label>
-        <label class="field"><span id="alPriceLbl">Price each</span><input class="input" id="alPrice" type="number" inputmode="decimal" step="0.01" placeholder="0.00"></label>
-      </div>
+      <label class="field"><span id="alPriceLbl">Price</span><input class="input" id="alPrice" type="number" inputmode="decimal" step="0.01" placeholder="0.00"></label>
       <div class="row">
         <button class="btn ghost grow" onclick="renderAccount()">Back</button>
         <button class="btn gold grow" onclick="saveNewLine()">Add</button>
@@ -1499,7 +1483,7 @@
   /** Prefill the price: the property's mowing rate, the item's set price, or the last price charged there. */
   function fillAddPrice() {
     const pid = $('alProp').value, id = $('alItem').value, prop = propById(pid), item = priceById(id), lp = S.data.lastPrices || {};
-    $('alPriceLbl').textContent = id === 'CREDIT' ? 'Credit each' : 'Price each';
+    $('alPriceLbl').textContent = id === 'CREDIT' ? 'Credit amount' : 'Price';
     let v = 0;
     if (id === MOWING && prop && prop.mowRate > 0) v = prop.mowRate;
     else if (item && item.price > 0) v = item.price;
@@ -1510,7 +1494,7 @@
   async function saveNewLine() {
     const cid = S.acct.customer.id;
     const ok = await run('addWork', { propertyId: $('alProp').value, date: $('alDate').value, itemId: $('alItem').value,
-      description: $('alDesc').value, qty: $('alQty').value, price: $('alPrice').value }, 'Added');
+      description: $('alDesc').value, qty: 1, price: $('alPrice').value }, 'Added');
     if (ok) { openAccount(cid); if (S.tab === 'dash') loadDash(); }
   }
 
