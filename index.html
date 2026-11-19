@@ -599,7 +599,7 @@
 
     const chip = p => {
       const sel = S.items[p.id];
-      const priceTag = !own ? '' : varies(p.id) ? (sel && S.itemPrice[p.id] ? money(S.itemPrice[p.id]) : 'price?') : money(fixedPrice(p.id));
+      const priceTag = !own ? '' : varies(p.id) ? (sel && S.itemPrice[p.id] ? money(S.itemPrice[p.id]) : '') : money(fixedPrice(p.id));
       // One tap = one job at one price. No quantity: Stephen prices clean ups, mulch, weeding as one number.
       return `<button class="chip ${sel ? 'sel' : ''}" onclick="toggleItem('${p.id}')">
         ${esc(p.name)}${priceTag ? ` <span class="p">${priceTag}</span>` : ''}</button>`;
@@ -648,7 +648,7 @@
         const p = priceById(id);
         return `
         <div class="card" style="margin-top:12px">
-          <label class="field" style="margin:0"><span>${esc(p.name)}: price this time</span>
+          <label class="field" style="margin:0"><span>Amount for ${esc(p.name)}</span>
             <input class="input" id="vp_${id}" type="number" inputmode="decimal" step="0.01" value="${esc(S.itemPrice[id] || '')}" placeholder="0.00"
               oninput="S.itemPrice['${id}'] = this.value; updateLogButton()"></label>
           ${id === MOWING && prop ? `<div class="muted" style="margin-top:8px;font-size:12px">Tip: set a mowing rate on ${esc(prop.label)} (Settings) and this box goes away.</div>` : ''}
