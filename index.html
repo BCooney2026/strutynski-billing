@@ -503,6 +503,8 @@
   }
 
   function setData(data) {
+    // New day since the last load: move the Log date forward with it (unless it was set to a past day on purpose).
+    if (S.data && S.data.today !== data.today && S.date === S.data.today) S.date = data.today;
     S.data = data;
     document.body.classList.toggle('crew', data.role !== 'owner');
     if (data.role !== 'owner' && S.tab !== 'log') showTab('log');
@@ -1631,6 +1633,12 @@
       <label class="field"><span>Mowing rate</span><input class="input" id="${x}Rate" type="number" inputmode="decimal" step="0.01" value="${p.mowRate ? Number(p.mowRate).toFixed(2) : ''}" placeholder="$ per cut"></label>
       <label class="field"><span>Mow day</span><select class="input" id="${x}Day">${dayOptions(p.mowDay || '')}</select></label>
     </div>`;
+  /** A mowing rate under $5 is almost surely a typo (0.05 for 80). Returns true if OK to save. */
+  function rateLooksOk(x) {
+    const r = Number($(x + 'Rate').value);
+    if (r > 0 && r < 5) { toast('Mowing rate $' + r.toFixed(2) + ' looks like a typo. Fix it or leave it blank.', true); $(x + 'Rate').focus(); return false; }
+    return true;
+  }
   const readProp = x => ({ address: $(x + 'Address').value, label: $(x + 'Label').value, service: $(x + 'Service').value, mowRate: $(x + 'Rate').value, mowDay: $(x + 'Day').value });
 
   function editCustomer(id) {
@@ -1663,6 +1671,7 @@
   async function saveCustomer(id) {
     const payload = { id, name: $('cName').value, email: $('cEmail').value, address: $('cAddress').value, phone: $('cPhone').value,
       notes: $('cNotes').value, active: id ? $('cActive').checked : true };
+    if (!id && !rateLooksOk('fp')) return;
     if (!id) payload.firstProperty = readProp('fp');
     if (await run('saveCustomer', payload, 'Saved')) closeSheet();
   }
@@ -1683,6 +1692,7 @@
   }
 
   async function saveProperty(id) {
+    if (!rateLooksOk('pp')) return;
     const payload = Object.assign(readProp('pp'), { id, customerId: $('ppCust').value, notes: $('ppNotes').value, active: id ? $('ppActive').checked : true });
     if (await run('saveProperty', payload, 'Saved')) editCustomer(payload.customerId);
   }
@@ -1739,6 +1749,13 @@
       AUTOMATION_PAUSED: $('setPaused').checked,
     }, 'Saved');
   }
+
+  /** Phones leave the app open for days. When it comes back on a new day, reload so "today",
+   *  the Mow List and the Log date are not stuck on yesterday (Mowed taps log on today's date). */
+  function localYmd() { const t = new Date(); return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !DEMO && S.pin && S.data && S.data.today && S.data.today !== localYmd()) run('bootstrap');
+  });
 
   // ---------------- Start ----------------
   /** The bill-day email links here with ?bills=1: land straight on Send Bills. */
