@@ -395,7 +395,7 @@
   function loadDemo() {
     if (!demoEngine) demoEngine = new Promise((resolve, reject) => {
       const tag = document.createElement('script');
-      tag.src = 'demo-engine.js?v=6';  // bump whenever demo-engine.js changes, or phones keep the old one
+      tag.src = 'demo-engine.js?v=7';  // bump whenever demo-engine.js changes, or phones keep the old one
       tag.onload = () => resolve(window.StrutDemo);
       tag.onerror = () => { demoEngine = null; reject(new Error('Could not load the demo. Check your signal.')); };
       document.head.appendChild(tag);
@@ -1090,7 +1090,7 @@
     const ids = sheetChecked().map(i => i.value);
     if (!ids.length || S.busy) return;
     if (!await ask(`Send ${plural(ids.length, 'bill')} now?`, 'Send')) return;
-    setBusy(true, `Sending ${plural(ids.length, 'bill')}... a few seconds each`);
+    setBusy(true, ids.length === 1 ? 'Sending the bill...' : `Sending ${ids.length} bills...`);
     try {
       const res = await call('sendBills', { customerIds: ids, through: S.sendMode === 'today' ? 'today' : 'month' });
       closeSheet(); setData(res); showTab('money');
