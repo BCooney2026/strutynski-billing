@@ -9,12 +9,15 @@
     Money     What is owed, record cash / check / Venmo payments, open or resend invoice PDFs.
     Dash      Heads up, send bills, money, mowing and season status, crew, customer accounts.
     Settings  Prices, customers and their properties, crew, business info.
+    Trees     Christmas tree lot: ring up walk-up sales (Venmo scan code, cash change), count the cash box,
+              truck loads and stock left, season report. Crew with a PIN can sell too, and never see costs.
   Crew PIN: the Log tab only, no money anywhere. Their "price varies" jobs come in unpriced and the
   owner prices them before billing.
   Backend: the Apps Script web app at API_URL (Code.gs doPost). Every request is
   POST {pin, action, payload}. The PIN is asked once per device and kept in localStorage.
   Requests send no cookies, so multiple signed-in Google accounts can never interfere.
-  Files in this folder: index.html, manifest.webmanifest, banner.png, apple-touch-icon.png, icon-192.png, icon-512.png
+  Files in this folder: index.html, manifest.webmanifest, banner.png, apple-touch-icon.png, icon-192.png, icon-512.png,
+  demo-engine.js (demo mode), qr.js (Venmo scan-to-pay code on the Trees tab, MIT license)
 -->
 <html lang="en">
 <head>
@@ -285,6 +288,51 @@
   .pick .x { background: transparent; border: 0; color: var(--red); font-size: 18px; font-weight: 800; padding: 4px 2px 4px 10px; cursor: pointer; }
   .grp { font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--leaf); padding: 12px 2px 2px; }
 
+  /* ---------- Trees (Christmas tree lot) ---------- */
+  nav.tabs button[data-tab="trees"] { display: none; }
+  body.trees nav.tabs button[data-tab="trees"] { display: flex; }
+  body.crew.trees nav.tabs { display: flex; }
+  body.crew nav.tabs button[data-tab="money"], body.crew nav.tabs button[data-tab="dash"], body.crew nav.tabs button[data-tab="settings"] { display: none; }
+  body.crew.trees { padding-bottom: 96px; }
+  .tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 9px; }
+  .ttile { position: relative; text-align: left; border: 1px solid var(--line-soft); background: linear-gradient(180deg, var(--card-hi), var(--card)); border-radius: 15px; padding: 12px 12px 11px; cursor: pointer; transition: transform .08s, border-color .15s, box-shadow .15s; min-height: 78px; }
+  .ttile:active { transform: scale(.97); }
+  .ttile .nm { font-weight: 800; font-size: 15px; line-height: 1.2; padding-right: 26px; }
+  .ttile .pr { font-family: var(--display); font-weight: 700; font-size: 19px; color: var(--brass); margin-top: 5px; }
+  .ttile .lf { font-size: 12px; color: var(--muted); font-weight: 700; margin-top: 2px; }
+  .ttile .lf.low { color: #ffaa9e; }
+  .ttile.in { border-color: var(--leaf); box-shadow: 0 0 0 1px var(--leaf) inset, 0 0 20px var(--leaf-glow); }
+  .ttile .n { position: absolute; top: 9px; right: 9px; min-width: 26px; height: 26px; border-radius: 13px; padding: 0 7px; display: grid; place-items: center; background: var(--leaf); color: #0b1710; font-weight: 900; font-size: 14px; }
+  .ttile.out { opacity: .5; }
+  .cart-line { display: flex; align-items: center; gap: 8px; padding: 11px 0; border-bottom: 1px solid var(--line-soft); }
+  .cart-line:last-child { border-bottom: 0; }
+  .step { display: inline-flex; align-items: center; border: 1px solid var(--line-soft); border-radius: 11px; overflow: hidden; flex: none; }
+  .step button { border: 0; background: rgba(255,255,255,.05); width: 34px; height: 34px; font-size: 18px; font-weight: 900; cursor: pointer; color: var(--ink); }
+  .step span { min-width: 26px; text-align: center; font-weight: 900; }
+  .pricebtn { border: 1px dashed rgba(212,176,106,.45); background: transparent; color: var(--brass); border-radius: 10px; padding: 7px 9px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+  .pricebtn.off { color: #ffaa9e; border-color: rgba(255,123,107,.5); }
+  .ttotal { display: flex; align-items: baseline; justify-content: space-between; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+  .ttotal .money-big { font-size: 40px; }
+  .tender { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .tender button { flex: 1 0 22%; border: 1px solid var(--line-soft); background: rgba(255,255,255,.04); border-radius: 12px; padding: 12px 4px; font-weight: 800; cursor: pointer; }
+  .tender button.on { border-color: var(--brass); background: rgba(212,176,106,.14); color: var(--brass); }
+  .change { margin-top: 12px; text-align: center; padding: 12px; border-radius: 14px; background: rgba(143,208,124,.09); border: 1px solid rgba(143,208,124,.3); }
+  .change .v { font-family: var(--display); font-weight: 800; font-size: 34px; color: var(--leaf); }
+  .qrbox { margin-top: 12px; text-align: center; padding: 14px; border-radius: 16px; background: #fff; color: #0b1710; }
+  .qrbox svg { width: 100%; max-width: 230px; height: auto; display: block; margin: 0 auto; }
+  .qrbox .h { font-weight: 900; font-size: 15px; margin-top: 8px; }
+  .qrbox .s { font-size: 13px; color: #4b5a50; }
+  .boxline { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; padding: 11px 13px; border-radius: 13px; background: rgba(0,0,0,.22); border: 1px solid var(--line-soft); font-size: 14px; text-align: left; }
+  .boxline b { color: var(--ink); }
+  .mthree { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+  .mthree > div { background: rgba(0,0,0,.2); border-radius: 12px; padding: 9px 6px; border: 1px solid var(--line-soft); }
+  .mthree .k { font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .mthree .v { font-weight: 800; font-size: 17px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .ostrike { text-decoration: line-through; color: var(--muted); font-weight: 600; margin-right: 4px; }
+  .stockrow { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
+  .stockrow:last-child { border-bottom: 0; }
+  .stockrow input { width: 70px; text-align: center; padding: 10px 6px; }
+
   /* ---------- Demo mode ---------- */
   #demoBar { display: none; position: sticky; top: 0; z-index: 12; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; background: rgba(11,23,16,.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
   body.demo #demoBar { display: block; }
@@ -310,6 +358,7 @@
   <section id="tab-money" class="tab"></section>
   <section id="tab-settings" class="tab"></section>
   <section id="tab-dash" class="tab"></section>
+  <section id="tab-trees" class="tab"></section>
   <div class="tagline">MOWING &bull; CLEAN UPS &bull; MULCHING &bull; GARDENING</div>
 </main>
 
@@ -317,6 +366,7 @@
   <button data-tab="log" class="on" onclick="showTab('log')"><span class="ic">&#9998;</span>Log</button>
   <button data-tab="money" onclick="showTab('money')"><span class="ic">$</span>Money</button>
   <button data-tab="dash" onclick="showTab('dash')"><span class="ic">&#9672;</span>Dash</button>
+  <button data-tab="trees" onclick="showTab('trees')"><span class="ic">&#127876;</span>Trees</button>
   <button data-tab="settings" onclick="showTab('settings')"><span class="ic">&#9881;</span>Settings</button>
 </nav>
 
@@ -395,7 +445,7 @@
   function loadDemo() {
     if (!demoEngine) demoEngine = new Promise((resolve, reject) => {
       const tag = document.createElement('script');
-      tag.src = 'demo-engine.js?v=7';  // bump whenever demo-engine.js changes, or phones keep the old one
+      tag.src = 'demo-engine.js?v=8';  // bump whenever demo-engine.js changes, or phones keep the old one
       tag.onload = () => resolve(window.StrutDemo);
       tag.onerror = () => { demoEngine = null; reject(new Error('Could not load the demo. Check your signal.')); };
       document.head.appendChild(tag);
@@ -510,7 +560,9 @@
     if (S.data && S.data.today !== data.today && S.date === S.data.today) S.date = data.today;
     S.data = data;
     document.body.classList.toggle('crew', data.role !== 'owner');
-    if (data.role !== 'owner' && S.tab !== 'log') showTab('log');
+    document.body.classList.toggle('trees', !!data.treesOn);
+    if (data.role !== 'owner' && S.tab !== 'log' && !(S.tab === 'trees' && data.treesOn)) showTab('log');
+    if (!data.treesOn && S.tab === 'trees') showTab('log');
     render();
   }
 
@@ -547,6 +599,7 @@
     document.querySelectorAll('nav.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
     window.scrollTo(0, 0);
     if (tab === 'dash') loadDash();
+    if (tab === 'trees') loadTrees();
   }
 
   // ---------------- Render ----------------
@@ -916,6 +969,13 @@
     ['Paid with Venmo', 'Tap Got paid and pick <b>Venmo</b>. The app only records it; the money is already in your Venmo. Add your Venmo username in Settings so it prints on bills.', 'venmo', 'owner'],
     ['Customer is late', 'A red <b>Did these pay you?</b> card shows on Log. Paid? Tap Got paid. Not yet? Tap Not yet. Reminder emails go at 14 and 30 days late.', 'late overdue reminder', 'owner'],
     ['Add a crew member', 'Settings &gt; Crew &gt; <b>+ Add</b>. Give them a PIN and they can log work on their own phone, with no money showing. No PIN = just a name you can pick under Done by.', 'crew helper dad pin', 'owner'],
+    ['Sell a Christmas tree', 'Trees tab. Tap the tree (tap again for two), add a wreath or stand if they want one, pick <b>Cash</b>, <b>Check</b> or <b>Venmo</b>, tap <b>Ring it up</b>. Cash: tap what they handed you and the app shows the change.', 'tree christmas sell lot wreath', 'all'],
+    ['They want a better price', 'In This sale, tap the gold price on the tree and type what you agreed on. The season report shows how much was knocked off tags all year.', 'haggle discount deal tree', 'all'],
+    ['Venmo at the tree lot', 'Pick <b>Venmo</b> and a code shows with the exact amount filled in. They scan it with their phone camera, pay, show you the screen, you tap Ring it up.', 'venmo qr code scan tree', 'all'],
+    ['Rang up the wrong thing', 'Trees tab, Today\'s sales, tap the red X on that sale. Crew can take back their own sales from today.', 'tree wrong undo mistake', 'all'],
+    ['A truck of trees came in', 'Trees tab, <b>Stock</b>, <b>+ Truck came in</b>. Type how many of each and what you paid each. The app counts down as you sell, and turns red when you are low.', 'stock load truck inventory count', 'owner'],
+    ['Count the cash box', 'Trees tab at closing, <b>Count the box</b>. Type what is in it. The app knows what should be there (starting cash plus cash sales) and shows if you are over or short.', 'cash box count close drawer', 'owner'],
+    ['How did the tree season do?', 'Trees tab, <b>Season</b>. Sales, sales tax inside them, what you paid for stock, profit, best day, best sellers, busiest hours, and everyone who left their name for next year.', 'season profit report tax trees', 'owner'],
     ['App is stuck or looks old', 'Close the app all the way and open it again. Still stuck? Call Brian.', 'broken stuck refresh', 'all'],
   ];
 
@@ -974,6 +1034,7 @@
     money: '<b>Bills you already sent.</b> See who still owes you. When someone pays, tap <b>Got paid</b>.',
     dash: '<b>Send bills from here.</b> Plus mowing, the season, and how the business is doing.',
     settings: '<b>Set it once.</b> Prices, customers and their properties, crew, and your business info.',
+    trees: '<b>Ring up the tree lot here.</b> Tap what they are buying, pick how they paid, tap <b>Ring it up</b>. The app counts every tree and the cash box for you.',
   };
   const intro = tab => `<div class="intro">${INTROS[tab]}</div>`;
 
@@ -1883,6 +1944,493 @@
 
   // ---------------- Start ----------------
   /** The bill-day email links here with ?bills=1: land straight on Send Bills. */
+  // =====================================================================
+  // Trees tab: the Christmas tree lot (walk-up sales, cash box, stock, season)
+  // =====================================================================
+
+  const T = {
+    data: null,       // treeBoot from the server
+    view: 'sell',     // owner: sell | stock | season
+    cart: [],         // [{ itemId, name, qty, price, tag }]  itemId 'OTHER' for one-offs
+    method: 'Cash',
+    tendered: null,   // cash handed over
+    ref: '',
+    buyer: { name: '', phone: '', email: '' },
+    season: null,
+  };
+  const OTHER = 'OTHER';
+  const treeItem = id => (T.data.items || []).find(i => i.id === id);
+  const cartTotal = () => {
+    const sub = T.cart.reduce((t, l) => t + (Number(l.price) || 0) * l.qty, 0);
+    return round2(T.data && !T.data.taxIncluded ? sub * (1 + T.data.taxRate / 100) : sub);
+  };
+  const taxInside = total => round2(total - total / (1 + (T.data.taxRate || 0) / 100));
+
+  async function loadTrees() {
+    const el = $('tab-trees');
+    if (!T.data) el.innerHTML = '<div class="empty">Opening the lot...</div>';
+    try { setTrees(await call('treeBoot')); }
+    catch (e) {
+      if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true);
+      if (!T.data) el.innerHTML = '<div class="empty">Could not open the tree lot. Tap Trees to retry.</div>';
+    }
+  }
+
+  function setTrees(data) {
+    T.data = data;
+    if (data.role !== 'owner') T.view = 'sell';
+    // Prices may have changed: keep the cart but refresh names.
+    T.cart = T.cart.filter(l => l.itemId === OTHER || treeItem(l.itemId));
+    renderTrees();
+  }
+
+  /** Server call for the Trees tab: busy ring, redraw on success, toast on error. */
+  async function treeRun(action, payload, okMsg) {
+    if (S.busy) return null;
+    setBusy(true);
+    try {
+      const data = await call(action, payload);
+      setTrees(data);
+      if (okMsg) toast(okMsg);
+      return data;
+    } catch (e) {
+      if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true);
+      return null;
+    } finally { setBusy(false); }
+  }
+
+  function renderTrees() {
+    const D = T.data, own = D.role === 'owner', st = D.todayStats;
+    const el = $('tab-trees');
+    const seg = own ? `
+      <div class="seg" style="margin:16px 0 4px">
+        ${[['sell', 'Sell'], ['stock', 'Stock'], ['season', 'Season']].map(([k, l]) => `<button class="${T.view === k ? 'on' : ''}" onclick="treeView('${k}')">${l}</button>`).join('')}
+      </div>` : '';
+    const box = D.box;
+    const boxMsg = box ? (Math.abs(box.overShort) < 0.005
+      ? `<span style="color:var(--green)">Counted ${esc(box.at)}: right on the money.</span>`
+      : `<span style="color:${box.overShort < 0 ? 'var(--red)' : 'var(--green)'}">Counted ${esc(box.at)}: ${money(box.counted)}, ${box.overShort < 0 ? 'short' : 'over'} ${money(Math.abs(box.overShort))}.</span>`) : '';
+    el.innerHTML = `
+      ${intro('trees')}
+      <div class="card vault">
+        <div class="stat" style="justify-content:center"><span class="k">${own ? 'Tree lot today' : 'You sold today'}</span></div>
+        <div class="money-big">${money(st.total)}</div>
+        <div class="muted" style="margin-top:2px">${plural(st.trees, 'tree')} &middot; ${plural(st.sales, 'sale')}</div>
+        <div class="mthree">
+          ${['Cash', 'Check', 'Venmo'].map(m => `<div><div class="k">${m}</div><div class="v">${money(st.methods[m] || 0)}</div></div>`).join('')}
+        </div>
+        ${own ? `
+        <div class="boxline"><div>Cash box should have<div class="muted">${money(st.float)} to start + ${money(st.methods.Cash || 0)} cash sales</div></div><b style="font-size:20px">${money(st.expectedCash)}</b></div>
+        ${boxMsg ? `<div class="muted" style="margin-top:8px">${boxMsg}</div>` : ''}
+        <button class="btn ghost big" style="margin-top:12px" onclick="openCountBox()">${box ? 'Count the box again' : 'Count the box'}</button>` : ''}
+      </div>
+      ${seg}
+      <div id="treeBody">${T.view === 'stock' ? treeStockHtml() : T.view === 'season' ? '<div class="empty">Adding up the season...</div>' : treeSellHtml()}</div>`;
+    if (T.view === 'season') loadSeason();
+    if (T.view === 'sell') drawVenmoQr();
+  }
+
+  function treeView(v) { T.view = v; renderTrees(); }
+
+  // ---------------- Sell ----------------
+  function treeSellHtml() {
+    const D = T.data, own = D.role === 'owner';
+    const active = D.items.filter(i => i.active);
+    const inCart = id => T.cart.filter(l => l.itemId === id).reduce((t, l) => t + l.qty, 0);
+    const groups = D.groups.map(g => {
+      const list = active.filter(i => i.group === g);
+      if (!list.length) return '';
+      return `<div class="lbl">${esc(g)}</div><div class="tgrid">${list.map(i => {
+        const n = inCart(i.id);
+        const left = i.left === null ? null : i.left - n;
+        const lf = left === null ? '' : left <= 0 ? '<div class="lf low">Sold out</div>' : `<div class="lf${left <= 3 ? ' low' : ''}">${left} left</div>`;
+        return `<button class="ttile${n ? ' in' : ''}${left !== null && left <= 0 && !n ? ' out' : ''}" onclick="addToCart('${i.id}')">
+          ${n ? `<span class="n">${n}</span>` : ''}<div class="nm">${esc(i.name)}</div><div class="pr">${money(i.price)}</div>${lf}</button>`;
+      }).join('')}</div>`;
+    }).join('');
+
+    const total = cartTotal();
+    const lines = T.cart.map((l, idx) => {
+      const off = l.tag !== null && l.tag !== undefined && Number(l.price) < l.tag;
+      return `<div class="cart-line">
+        <div class="grow"><div style="font-weight:800" class="ell">${esc(l.name)}</div>
+          <div class="muted">${l.qty > 1 ? l.qty + ' &times; ' : ''}${off ? `<span class="ostrike">${money(l.tag)}</span>` : ''}${money(l.price)}</div></div>
+        <button class="pricebtn${off ? ' off' : ''}" onclick="changePrice(${idx})">${money((Number(l.price) || 0) * l.qty)}</button>
+        <span class="step"><button onclick="cartQty(${idx},-1)" aria-label="One less">&minus;</button><span>${l.qty}</span><button onclick="cartQty(${idx},1)" aria-label="One more">+</button></span>
+      </div>`;
+    }).join('');
+
+    const pay = ['Cash', 'Check', 'Venmo'].map(m => `<button class="${T.method === m ? 'on' : ''}" onclick="treeMethod('${m}')">${m}</button>`).join('');
+    let payExtra = '';
+    if (T.cart.length && T.method === 'Cash') {
+      const opts = tenderOptions(total);
+      payExtra = `
+        <div class="muted" style="margin-top:12px">They handed you:</div>
+        <div class="tender">${opts.map(v => `<button class="${T.tendered === v ? 'on' : ''}" onclick="tender(${v})">${v === total ? 'Exact' : '$' + v}</button>`).join('')}
+          <button class="${T.tendered !== null && opts.indexOf(T.tendered) < 0 ? 'on' : ''}" onclick="tenderOther()">Other</button></div>
+        ${T.tendered !== null && T.tendered >= total ? `<div class="change"><div class="muted">Give back</div><div class="v">${money(T.tendered - total)}</div></div>` : ''}
+        ${T.tendered !== null && T.tendered < total ? `<div class="warn">That is ${money(total - T.tendered)} short.</div>` : ''}`;
+    } else if (T.cart.length && T.method === 'Check') {
+      payExtra = `<label class="field" style="margin:12px 0 0"><span>Check # (optional)</span><input class="input" inputmode="numeric" value="${esc(T.ref)}" oninput="T.ref=this.value"></label>`;
+    } else if (T.cart.length && T.method === 'Venmo') {
+      payExtra = T.data.venmo
+        ? `<div class="qrbox" id="venmoQr"><div class="s">Making the code...</div></div>`
+        : `<div class="warn">${own ? 'Add your Venmo username in Settings &gt; Business info and a scan-to-pay code shows here.' : 'Ask the owner for the Venmo name.'}</div>`;
+    }
+
+    const b = T.buyer;
+    return `
+      ${groups}
+      <button class="btn ghost sm" style="margin-top:12px" onclick="addOther()">+ Something else</button>
+
+      <div class="lbl">This sale</div>
+      <div class="card">
+        ${lines || '<div class="empty" style="padding:8px">Tap a tree, wreath or stand above.</div>'}
+        ${T.cart.length ? `
+        <div class="ttotal"><div><div class="k muted" style="font-weight:800;letter-spacing:1px;font-size:12px">TOTAL</div>
+          <div class="muted" style="font-size:12px">${T.data.taxRate ? (T.data.taxIncluded ? 'Includes ' + money(taxInside(total)) + ' tax' : 'With ' + T.data.taxRate + '% tax') : ''}</div></div>
+          <div class="money-big">${money(total)}</div></div>
+        <div class="seg" style="margin-top:14px">${pay}</div>
+        ${payExtra}
+        <details class="fold"${b.name || b.phone || b.email ? ' open' : ''}><summary><span class="muted" style="font-weight:700">Name for next year's list (optional) <span class="chev">&rsaquo;</span></span></summary>
+          <div style="margin-top:10px">
+            <label class="field"><span>Name</span><input class="input" value="${esc(b.name)}" oninput="T.buyer.name=this.value" autocomplete="off"></label>
+            <div class="two"><label class="field"><span>Phone</span><input class="input" type="tel" value="${esc(b.phone)}" oninput="T.buyer.phone=this.value"></label>
+            <label class="field"><span>Email</span><input class="input" type="email" value="${esc(b.email)}" oninput="T.buyer.email=this.value"></label></div>
+          </div></details>
+        <button class="btn gold big" onclick="ringUp()">Ring it up &middot; ${money(total)}</button>
+        <button class="link" style="display:block;margin:8px auto 0" onclick="clearCart()">Start over</button>` : ''}
+      </div>
+
+      <div class="lbl">${T.data.role === 'owner' ? 'Today\'s sales' : 'Your sales today'}</div>
+      <div class="card list">${treeSalesHtml(T.data.sales.filter(x => x.date === T.data.today))}</div>`;
+  }
+
+  function treeSalesHtml(list) {
+    if (!list.length) return '<div class="empty">No sales yet today.</div>';
+    const own = T.data.role === 'owner';
+    return list.map(x => `
+      <div class="item"${x.voided ? ' style="opacity:.4"' : ''}><div class="row">
+        <div class="grow"><div style="font-weight:800" class="ell">${esc(x.lines.map(l => (l.qty > 1 ? l.qty + ' ' : '') + l.name).join(', '))}</div>
+          <div class="muted">${esc(x.time)} &middot; ${esc(x.method)}${x.ref ? ' #' + esc(x.ref) : ''}${x.buyer ? ' &middot; ' + esc(x.buyer) : ''}${own && x.soldBy ? ' &middot; ' + esc(x.soldBy) : ''}${x.voided ? ' &middot; taken back' : ''}</div></div>
+        <div class="amt">${money(x.total)}</div>
+        ${x.voided ? '' : `<button class="link" style="color:var(--red);text-decoration:none;font-size:18px;font-weight:800" onclick="voidSale('${x.saleId}')" aria-label="Take back this sale">&#10005;</button>`}
+      </div></div>`).join('');
+  }
+
+  function redrawSell() { $('treeBody').innerHTML = treeSellHtml(); drawVenmoQr(); }
+
+  function addToCart(id) {
+    const it = treeItem(id);
+    const line = T.cart.find(l => l.itemId === id && Number(l.price) === it.price);
+    if (line) line.qty++;
+    else T.cart.push({ itemId: id, name: it.name, qty: 1, price: it.price, tag: it.price });
+    T.tendered = null;
+    redrawSell();
+  }
+  function cartQty(idx, d) {
+    const l = T.cart[idx];
+    l.qty += d;
+    if (l.qty <= 0) T.cart.splice(idx, 1);
+    T.tendered = null;
+    redrawSell();
+  }
+  function clearCart() { T.cart = []; T.tendered = null; T.ref = ''; T.buyer = { name: '', phone: '', email: '' }; redrawSell(); }
+  function treeMethod(m) { T.method = m; T.tendered = null; redrawSell(); }
+  function tender(v) { T.tendered = v; redrawSell(); }
+
+  /** Exact, then the next few bills a customer would hand over. */
+  function tenderOptions(total) {
+    const out = [total];
+    [5, 10, 20, 50, 100].forEach(step => { const v = Math.ceil((total + 0.001) / step) * step; if (v > total && out.indexOf(v) < 0) out.push(v); });
+    return out.sort((a, b) => a - b).slice(0, 4);
+  }
+
+  function changePrice(idx) {
+    const l = T.cart[idx];
+    openSheet(`
+      <h3>${esc(l.name)}</h3>
+      ${l.tag !== null && l.tag !== undefined ? `<div class="muted" style="margin:-6px 0 12px">Tag price ${money(l.tag)}. Type what you agreed on, each.</div>` : ''}
+      <label class="field"><span>Price each</span><input class="input" id="newPrice" inputmode="decimal" value="${esc(l.price)}"></label>
+      <div class="row"><button class="btn ghost grow" onclick="closeSheet()">Cancel</button><button class="btn gold grow" onclick="savePrice(${idx})">Save</button></div>`);
+    setTimeout(() => { const i = $('newPrice'); i.focus(); i.select(); }, 60);
+  }
+  function savePrice(idx) {
+    const v = round2(Number(String($('newPrice').value).replace(/[$,]/g, '')));
+    if (!(v >= 0)) { toast('Type a price', true); return; }
+    T.cart[idx].price = v; T.tendered = null;
+    closeSheet(); redrawSell();
+  }
+
+  function tenderOther() {
+    openSheet(`
+      <h3>They handed you</h3>
+      <label class="field"><span>Cash</span><input class="input" id="tenderIn" inputmode="decimal" placeholder="$"></label>
+      <div class="row"><button class="btn ghost grow" onclick="closeSheet()">Cancel</button><button class="btn gold grow" onclick="tenderSave()">Show change</button></div>`);
+    setTimeout(() => $('tenderIn').focus(), 60);
+  }
+  function tenderSave() {
+    const v = round2(Number(String($('tenderIn').value).replace(/[$,]/g, '')));
+    if (!(v > 0)) { toast('Type what they handed you', true); return; }
+    T.tendered = v; closeSheet(); redrawSell();
+  }
+
+  function addOther() {
+    openSheet(`
+      <h3>Something else</h3>
+      <div class="muted" style="margin:-6px 0 12px">A one-off (hot cocoa, a bigger tree, a delivery). Sell it often? Owner can make it a button under Stock.</div>
+      <label class="field"><span>What</span><input class="input" id="otherName" autocomplete="off"></label>
+      <label class="field"><span>Price each</span><input class="input" id="otherPrice" inputmode="decimal" placeholder="$"></label>
+      <div class="row"><button class="btn ghost grow" onclick="closeSheet()">Cancel</button><button class="btn gold grow" onclick="saveOther()">Add to sale</button></div>`);
+    setTimeout(() => $('otherName').focus(), 60);
+  }
+  function saveOther() {
+    const name = $('otherName').value.trim(), price = round2(Number(String($('otherPrice').value).replace(/[$,]/g, '')));
+    if (!name) { toast('Say what it is', true); return; }
+    if (!(price > 0)) { toast('Type the price', true); return; }
+    T.cart.push({ itemId: OTHER, name, qty: 1, price, tag: null });
+    T.tendered = null; closeSheet(); redrawSell();
+  }
+
+  async function ringUp() {
+    const total = cartTotal();
+    if (T.method === 'Cash' && T.tendered !== null && T.tendered < total) { toast('Cash handed over is short', true); return; }
+    const change = T.method === 'Cash' && T.tendered !== null ? round2(T.tendered - total) : null;
+    const data = await treeRun('treeSell', {
+      method: T.method, ref: T.method === 'Check' ? T.ref : '', buyer: T.buyer.name, phone: T.buyer.phone, email: T.buyer.email,
+      lines: T.cart.map(l => ({ itemId: l.itemId, name: l.name, qty: l.qty, price: l.price })),
+    });
+    if (!data) return;
+    T.cart = []; T.tendered = null; T.ref = ''; T.buyer = { name: '', phone: '', email: '' };
+    redrawSell();
+    openSheet(`<div class="tip-card"><div class="k">SOLD</div>
+      <div class="money-big" style="font-size:44px">${money(data.lastSale.total)}</div>
+      <div class="muted" style="margin-top:4px">${esc(data.lastSale.method)}</div>
+      ${change !== null && change > 0 ? `<div class="change" style="margin-top:16px"><div class="muted">Give back</div><div class="v">${money(change)}</div></div>` : ''}
+      </div><button class="btn gold big" onclick="closeSheet()">Next customer</button>`);
+  }
+
+  async function voidSale(id) {
+    const x = T.data.sales.find(s => s.saleId === id);
+    if (!await ask(`Take back this ${money(x ? x.total : 0)} sale? It comes off today's numbers and the trees go back on the count.`, 'Take it back', true)) return;
+    treeRun('treeVoidSale', { saleId: id }, 'Sale taken back');
+  }
+
+  // Venmo scan-to-pay code: Venmo's own payment link with the amount filled in, drawn as a QR on this phone.
+  let qrLoading = null;
+  function loadQr() {
+    if (window.qrcode) return Promise.resolve(window.qrcode);
+    if (!qrLoading) qrLoading = new Promise((res, rej) => {
+      const tag = document.createElement('script'); tag.src = 'qr.js?v=1';
+      tag.onload = () => res(window.qrcode); tag.onerror = () => { qrLoading = null; rej(new Error('no qr')); };
+      document.head.appendChild(tag);
+    });
+    return qrLoading;
+  }
+  function venmoLink(total) {
+    const note = 'Christmas tree - ' + (T.data.business || 'Strutynski Landscaping');
+    return 'https://venmo.com/u/' + encodeURIComponent(T.data.venmo) + '?txn=pay&amount=' + total.toFixed(2) + '&note=' + encodeURIComponent(note);
+  }
+  async function drawVenmoQr() {
+    const box = $('venmoQr');
+    if (!box) return;
+    const total = cartTotal(), link = venmoLink(total);
+    try {
+      const qrcode = await loadQr();
+      const q = qrcode(0, 'M'); q.addData(link); q.make();
+      if (!$('venmoQr')) return;
+      $('venmoQr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) +
+        `<div class="h">Scan to pay ${money(total)} on Venmo</div><div class="s">@${esc(T.data.venmo)} &middot; check their screen says paid, then Ring it up</div>`;
+    } catch (e) {
+      $('venmoQr').innerHTML = `<div class="h">Venmo @${esc(T.data.venmo)}</div><div class="s">${money(total)}</div><a class="btn sm" style="margin-top:8px" href="${esc(link)}" target="_blank" rel="noopener">Open Venmo link</a>`;
+    }
+  }
+
+  // ---------------- Count the box ----------------
+  function openCountBox() {
+    const st = T.data.todayStats;
+    openSheet(`
+      <h3>Count the cash box</h3>
+      <div class="boxline" style="margin-top:0"><div>Should be in the box<div class="muted">${money(st.float)} to start + ${money(st.methods.Cash || 0)} cash sales</div></div><b style="font-size:20px">${money(st.expectedCash)}</b></div>
+      <label class="field" style="margin-top:14px"><span>What you counted</span><input class="input" id="boxCount" inputmode="decimal" placeholder="$"></label>
+      <label class="field"><span>Started the day with</span><input class="input" id="boxFloat" inputmode="decimal" value="${esc(st.float)}"></label>
+      <label class="field"><span>Note (optional)</span><input class="input" id="boxNote" placeholder="Paid the helper $60 cash"></label>
+      <div class="row"><button class="btn ghost grow" onclick="closeSheet()">Cancel</button><button class="btn gold grow" onclick="saveCount()">Check it</button></div>`);
+    setTimeout(() => $('boxCount').focus(), 60);
+  }
+  async function saveCount() {
+    const data = await treeRun('treeCountBox', { counted: $('boxCount').value.replace(/[$,]/g, ''), float: $('boxFloat').value.replace(/[$,]/g, ''), note: $('boxNote').value });
+    if (!data) return;
+    const c = data.counted, off = round2(c.overShort);
+    openSheet(`<div class="tip-card"><div class="k">${off === 0 ? 'RIGHT ON' : off < 0 ? 'SHORT' : 'OVER'}</div>
+      <div class="money-big" style="font-size:44px">${off === 0 ? '$0.00' : money(Math.abs(off))}</div>
+      <div class="muted" style="margin-top:6px">Counted ${money(c.counted)}, should be ${money(c.expected)}.</div>
+      ${off < 0 ? '<div class="muted" style="margin-top:6px">Check for a Venmo or check rung up as Cash, or cash paid out of the box.</div>' : ''}
+      </div><button class="btn gold big" onclick="closeSheet()">Done</button>`);
+  }
+
+  // ---------------- Stock (owner) ----------------
+  function treeStockHtml() {
+    const D = T.data;
+    const rows = g => D.items.filter(i => i.group === g).map(i => `
+      <div class="item tap" onclick="editTreeItem('${i.id}')"${i.active ? '' : ' style="opacity:.45"'}><div class="row">
+        <div class="grow"><div style="font-weight:800">${esc(i.name)}</div>
+          <div class="muted">${money(i.price)}${i.cost ? ' &middot; cost ' + money(i.cost) : ''} &middot; sold ${i.sold}${i.received ? ' of ' + i.received : ''}${i.active ? '' : ' &middot; hidden'}</div></div>
+        <div style="text-align:right">${i.left === null ? '<span class="muted">not counted</span>' : `<span class="stlabel ${i.left <= 0 ? 'fix' : i.left <= 3 ? 'watch' : 'good'}">${i.left <= 0 ? 'sold out' : i.left + ' left'}</span>`}</div>
+        <div style="color:var(--brass)">&rsaquo;</div></div></div>`).join('');
+    const counted = D.items.filter(i => i.left !== null);
+    const treesLeft = counted.filter(i => i.group === 'Trees').reduce((t, i) => t + Math.max(0, i.left), 0);
+    const low = counted.filter(i => i.active && i.left <= 3);
+    return `
+      <div class="actions" style="margin-top:14px">
+        <button class="btn gold grow" onclick="openTruck()">+ Truck came in</button>
+        <button class="btn ghost grow" onclick="openToss()">&minus; Tossed / damaged</button>
+      </div>
+      ${counted.length ? `<div class="tiles" style="margin-top:12px">
+        <div class="tile"><div class="k">Trees on the lot</div><div class="v">${treesLeft}</div><div class="s">by the count</div></div>
+        <div class="tile"><div class="k">Running low</div><div class="v" style="color:${low.length ? 'var(--red)' : 'var(--green)'}">${low.length}</div><div class="s">${low.length ? esc(low.slice(0, 2).map(i => i.name).join(', ')) + (low.length > 2 ? '...' : '') : 'all good'}</div></div>
+      </div>` : `<div class="warn">Not counting stock yet. Tap <b>+ Truck came in</b> and type how many of each you got. The app counts down as you sell.</div>`}
+      ${D.groups.map(g => `<div class="lbl">${esc(g)}</div><div class="card list">${rows(g) || '<div class="empty">Nothing here.</div>'}</div>`).join('')}
+      <button class="btn ghost sm" style="margin-top:12px" onclick="editTreeItem('')">+ New item</button>
+      <div class="lbl">Lot settings</div>
+      <div class="card">
+        <label class="switch"><span><b>Tag prices include tax</b><div class="muted">On: a $90 tree is $90 out the door and the app works out the ${D.taxRate}% inside it. Off: tax is added at the register.</div></span>
+          <input type="checkbox" ${D.taxIncluded ? 'checked' : ''} onchange="treeSetting('TREE_PRICES_INCLUDE_TAX', this.checked)"></label>
+        <label class="field"><span>Cash the box starts with each day</span><input class="input" inputmode="decimal" value="${esc(D.todayStats.float)}" onchange="treeSetting('TREE_FLOAT', this.value)"></label>
+        <button class="btn danger sm" onclick="hideTrees()">Season over: hide the Trees tab</button>
+      </div>`;
+  }
+
+  function openTruck() {
+    const D = T.data;
+    const list = D.items.filter(i => i.active);
+    openSheet(`
+      <h3>Truck came in</h3>
+      <div class="muted" style="margin:-6px 0 8px">Type how many of each came off the truck and what you paid each. Leave the rest blank.</div>
+      ${D.groups.map(g => { const l = list.filter(i => i.group === g); return l.length ? `<div class="grp">${esc(g)}</div>${l.map(i => `
+        <div class="stockrow"><div class="grow"><div style="font-weight:700">${esc(i.name)}</div><div class="muted">${i.left === null ? 'not counted yet' : i.left + ' on the lot'}</div></div>
+          <input class="input" data-q="${i.id}" inputmode="numeric" placeholder="qty"><input class="input" data-c="${i.id}" inputmode="decimal" placeholder="$ each" value="${i.cost ? esc(i.cost) : ''}"></div>`).join('')}` : ''; }).join('')}
+      <label class="field" style="margin-top:12px"><span>Note (optional)</span><input class="input" id="truckNote" placeholder="Hartman's Tree Farm, load 2"></label>
+      <div class="row" style="margin-top:6px"><button class="btn ghost grow" onclick="closeSheet()">Cancel</button><button class="btn gold grow" onclick="saveTruck()">Add to the lot</button></div>`);
+  }
+  async function saveTruck() {
+    const lines = [];
+    document.querySelectorAll('#sheet input[data-q]').forEach(el => {
+      const q = Math.round(Number(el.value));
+      if (q > 0) { const c = document.querySelector(`#sheet input[data-c="${el.dataset.q}"]`); lines.push({ itemId: el.dataset.q, qty: q, costEach: c && c.value.trim() !== '' ? c.value.replace(/[$,]/g, '') : '' }); }
+    });
+    if (!lines.length) { toast('Type a quantity for at least one item', true); return; }
+    const n = lines.reduce((t, l) => t + l.qty, 0);
+    if (await treeRun('treeStock', { lines, note: $('truckNote').value }, plural(n, 'item') + ' added to the lot')) closeSheet();
+  }
+
+  function openToss() {
+    const list = T.data.items.filter(i => i.active);
+    openSheet(`
+      <h3>Tossed, damaged or given away</h3>
+      <div class="muted" style="margin:-6px 0 12px">Takes them off the count without a sale.</div>
+      <label class="field"><span>Item</span><select class="input" id="tossItem">${list.map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join('')}</select></label>
+      <div class="two"><label class="field"><span>How many</span><input class="input" id="tossQty" inputmode="numeric" value="1"></label>
+      <label class="field"><span>Why</span><input class="input" id="tossWhy" placeholder="Broken top"></label></div>
+      <div class="row"><button class="btn ghost grow" onclick="closeSheet()">Cancel</button><button class="btn gold grow" onclick="saveToss()">Take off the count</button></div>`);
+  }
+  async function saveToss() {
+    const q = Math.round(Number($('tossQty').value));
+    if (!(q > 0)) { toast('How many?', true); return; }
+    if (await treeRun('treeStock', { lines: [{ itemId: $('tossItem').value, qty: -q, note: $('tossWhy').value }] }, 'Taken off the count')) closeSheet();
+  }
+
+  function editTreeItem(id) {
+    const i = id ? treeItem(id) : { name: '', group: 'Trees', price: '', cost: '', active: true };
+    openSheet(`
+      <h3>${id ? 'Edit item' : 'New item'}</h3>
+      <label class="field"><span>Name</span><input class="input" id="tiName" value="${esc(i.name)}" placeholder="Fraser Fir 10-12 ft"></label>
+      <label class="field"><span>Group</span><select class="input" id="tiGroup">${T.data.groups.map(g => `<option${g === i.group ? ' selected' : ''}>${esc(g)}</option>`).join('')}</select></label>
+      <div class="two"><label class="field"><span>Tag price</span><input class="input" id="tiPrice" inputmode="decimal" value="${esc(i.price)}"></label>
+      <label class="field"><span>You pay each</span><input class="input" id="tiCost" inputmode="decimal" value="${i.cost == null ? '' : esc(i.cost)}" placeholder="for profit"></label></div>
+      ${id ? `<label class="switch"><span>Show on the Sell screen</span><input type="checkbox" id="tiActive" ${i.active ? 'checked' : ''}></label>` : ''}
+      <div class="row"><button class="btn ghost grow" onclick="closeSheet()">Cancel</button><button class="btn gold grow" onclick="saveTreeItem('${id}')">Save</button></div>`);
+  }
+  async function saveTreeItem(id) {
+    const p = { id, name: $('tiName').value, group: $('tiGroup').value, price: $('tiPrice').value, cost: $('tiCost').value, active: id ? $('tiActive').checked : true };
+    if (await treeRun('treeSaveItem', p, 'Saved')) closeSheet();
+  }
+
+  async function treeSetting(key, value) {
+    if (await run('saveSettings', { [key]: value }, 'Saved')) loadTrees();
+  }
+  async function hideTrees() {
+    if (!await ask('Hide the Trees tab until next season? Nothing is deleted. Turn it back on in the sheet (Settings tab, TREES_ON = TRUE) or ask Brian.', 'Hide it', true)) return;
+    if (await run('saveSettings', { TREES_ON: false }, 'Trees tab hidden')) showTab('log');
+  }
+
+  // ---------------- Season (owner) ----------------
+  async function loadSeason() {
+    try { T.season = await call('treeSeason'); if (T.view === 'season') $('treeBody').innerHTML = treeSeasonHtml(); }
+    catch (e) { if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true); }
+  }
+
+  function treeSeasonHtml() {
+    const R = T.season;
+    if (!R.salesCount) return '<div class="empty">No tree sales yet this season. Ring one up on Sell and this fills in.</div>';
+    const bars = (rows, key, fmt) => { const max = Math.max.apply(null, rows.map(r => r[key]).concat([1])); return rows.map(r => `
+      <div class="hbar"><div class="n">${r.label}</div><div class="track"><div class="fill" style="width:${Math.max(2, r[key] / max * 100)}%"></div></div><div class="a">${fmt(r[key])}</div></div>`).join(''); };
+    const dayLabel = ymd => { const d = ymdDate(ymd); return DAYS[d.getDay()] + ' ' + niceDate(ymd); };
+    const hour = h => (h % 12 || 12) + (h < 12 ? 'am' : 'pm');
+    const hasCost = R.spent > 0;
+    return `
+      <div class="card vault" style="margin-top:14px">
+        <div class="stat" style="justify-content:center"><span class="k">${R.seasonYear} tree season</span></div>
+        <div class="money-big">${money(R.gross)}</div>
+        <div class="muted">${plural(R.trees, 'tree')} &middot; ${plural(R.salesCount, 'sale')}</div>
+        ${hasCost ? (() => {
+          const back = Math.min(1, Math.max(0, R.net / R.spent));
+          return `
+        <div class="boxline" style="display:block">
+          <div class="row"><div class="grow">${R.profit >= 0 ? 'Stock paid off. Profit so far' : 'Made back on stock'}</div><b style="font-size:20px;color:${R.profit >= 0 ? 'var(--green)' : 'var(--ink)'}">${R.profit >= 0 ? money(R.profit) : Math.round(back * 100) + '%'}</b></div>
+          <div class="track" style="height:10px;border-radius:5px;background:rgba(255,255,255,.06);margin:9px 0 6px"><div style="height:10px;border-radius:5px;width:${Math.max(2, back * 100)}%;background:${R.profit >= 0 ? 'var(--c-collected)' : 'var(--brass-grad)'}"></div></div>
+          <div class="muted">${money(R.net)} in sales (after ${money(R.tax)} tax) of ${money(R.spent)} paid for stock</div>
+        </div>
+        ${R.leftCount ? `<div class="boxline"><div>If the rest sells at tag<div class="muted">${plural(R.leftCount, 'tree')} plus wreaths still on the lot</div></div><b style="font-size:20px;color:${R.projected >= 0 ? 'var(--green)' : 'var(--red)'}">${money(R.projected)}</b></div>` : ''}
+        <div class="muted" style="margin-top:8px">Profit on what has sold: ${money(R.profitOnSold)} (${R.net ? Math.round(R.profitOnSold / R.net * 100) : 0}% margin)</div>`; })()
+        : `<div class="warn" style="text-align:left">Add what you paid for your trees (Stock &gt; + Truck came in) and this shows your profit.</div>`}
+      </div>
+      <div class="tiles" style="margin-top:12px">
+        <div class="tile"><div class="k">Average tree</div><div class="v">${money(R.avgTree)}</div><div class="s">${money(R.treeMoney)} on trees</div></div>
+        <div class="tile"><div class="k">Average sale</div><div class="v">${money(R.avgSale)}</div><div class="s">trees, wreaths, extras</div></div>
+        <div class="tile"><div class="k">${esc(R.taxLabel)}</div><div class="v">${money(R.tax)}</div><div class="s">inside sales: set it aside</div></div>
+        <div class="tile"><div class="k">Knocked off tags</div><div class="v">${money(R.haggled)}</div><div class="s">deals made at the lot</div></div>
+        ${R.best ? `<div class="tile wide"><div class="k">Best day</div><div class="v">${dayLabel(R.best.date)}: ${money(R.best.total)}</div><div class="s">${plural(R.best.trees, 'tree')}</div></div>` : ''}
+      </div>
+      <div class="lbl">Day by day</div>
+      <div class="card">${bars(R.days.slice().reverse().map(d => Object.assign({ label: dayLabel(d.date) }, d)), 'total', whole)}
+        <details class="nums"><summary>Show numbers</summary><table class="nums"><tr><th>Day</th><th>Trees</th><th>Cash</th><th>Check</th><th>Venmo</th><th>Box</th></tr>
+        ${R.days.slice().reverse().map(d => `<tr><td>${dayLabel(d.date)}</td><td>${d.trees}</td><td>${whole(d.Cash)}</td><td>${whole(d.Check)}</td><td>${whole(d.Venmo)}</td>
+          <td style="color:${!d.box ? 'var(--muted)' : d.box.overShort < 0 ? 'var(--red)' : 'var(--green)'}">${!d.box ? '-' : d.box.overShort === 0 ? 'ok' : (d.box.overShort < 0 ? '-' : '+') + money(Math.abs(d.box.overShort))}</td></tr>`).join('')}</table></details>
+      </div>
+      <div class="lbl">Best sellers</div>
+      <div class="card">${bars(R.items.filter(i => i.sold).slice(0, 10).map(i => ({ label: esc(i.name) + ' <span class="muted">&times;' + i.sold + '</span>', amount: i.amount })), 'amount', whole)}</div>
+      <div class="lbl">Busiest hours</div>
+      <div class="card">${bars(R.hours.map(h => ({ label: hour(h.hour) + ' to ' + hour(h.hour + 1), sales: h.sales })), 'sales', n => plural(n, 'sale'))}</div>
+      <div class="lbl">How they paid</div>
+      <div class="card">${bars(['Cash', 'Check', 'Venmo'].map(m => ({ label: m, v: R.methods[m] || 0 })), 'v', whole)}
+        ${R.boxDays ? `<div class="muted" style="margin-top:10px">Cash box counted ${plural(R.boxDays, 'day')}: ${R.boxNet === 0 ? 'right on every time.' : (R.boxNet < 0 ? 'short ' : 'over ') + money(Math.abs(R.boxNet)) + ' all season.'}</div>` : ''}</div>
+      <div class="lbl">Next year's list</div>
+      <div class="card list">
+        <div class="muted" style="margin-bottom:6px">${plural(R.buyers.length, 'customer')} left a name. Next November, they hear from you first.</div>
+        ${R.buyers.slice(0, 12).map(b => `<div class="item"><div class="row"><div class="grow"><div style="font-weight:800">${esc(b.name || b.phone || b.email)}</div>
+          <div class="muted">${esc([b.phone, b.email].filter(Boolean).join(' · '))}</div></div><div class="amt">${money(b.spent)}</div></div></div>`).join('')}
+        ${R.buyers.length ? `<button class="btn ghost sm" style="margin-top:10px" onclick="copyBuyers()">Copy the whole list</button>` : ''}
+      </div>`;
+  }
+
+  async function copyBuyers() {
+    const rows = [['Name', 'Phone', 'Email', 'Spent']].concat(T.season.buyers.map(b => [b.name, b.phone, b.email, b.spent.toFixed(2)]));
+    const text = rows.map(r => r.map(v => /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : v).join(',')).join('\n');
+    try { await navigator.clipboard.writeText(text); toast('Copied. Paste it into a note or a sheet.'); }
+    catch (e) { openSheet(`<h3>Next year's list</h3><textarea class="input" style="min-height:240px">${esc(text)}</textarea><button class="btn ghost big" onclick="closeSheet()">Close</button>`); }
+  }
+
   function afterBoot() {
     if (new URLSearchParams(location.search).get('bills') !== '1') return;
     history.replaceState(null, '', location.pathname);
