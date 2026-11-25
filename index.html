@@ -267,6 +267,13 @@
   .hbar .fill { height: 8px; border-radius: 4px; background: var(--c-logged); }
   .hbar .a { width: 64px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
   .stlabel { font-size: 11px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+  .lead { padding: 14px 0; }
+  .lead + .lead { border-top: 1px solid var(--line); }
+  .lead .who { font-weight: 800; font-size: 16px; }
+  .lead .note { margin-top: 6px; color: var(--ink); opacity: .85; font-size: 14px; font-style: italic; overflow-wrap: anywhere; }
+  .lead .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .lead .acts .btn { text-decoration: none; }
+  .newpill { font-family: var(--body, inherit); font-size: 11px; letter-spacing: .6px; padding: 3px 9px; border-radius: 999px; background: var(--brass-grad); color: #1a1408; }
   .stlabel.fix { background: rgba(255,123,107,.15); color: #ffaa9e; } .stlabel.watch { background: rgba(212,176,106,.16); color: var(--brass); } .stlabel.good { background: rgba(143,208,124,.14); color: var(--green); } .stlabel.none { background: rgba(255,255,255,.06); color: var(--muted); }
   .sysgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
   .sysgrid div { padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
@@ -455,7 +462,33 @@
   async function demoCall(action, payload) {
     const engine = await loadDemo();
     await new Promise(r => setTimeout(r, 150));
-    return engine.call(S.pin, action, payload);
+    // Website estimate requests are not in the demo engine's season, so the demo keeps three made-up ones here.
+    if (action === 'leadStatus') {
+      if (S.pin !== engine.OWNER_PIN) throw new Error('Only the owner can do that.');
+      const l = demoLeads().find(x => x.id === payload.id);
+      if (l) l.status = payload.status;
+      return demoLeadsView();
+    }
+    const out = await engine.call(S.pin, action, payload);
+    if (action === 'dashboard' && out && S.pin === engine.OWNER_PIN) out.leads = demoLeadsView();
+    return out;
+  }
+  let DEMO_LEADS = null;
+  function demoLeads() {
+    if (DEMO_LEADS) return DEMO_LEADS;
+    const at = (daysBack, h, m) => { const d = new Date(); d.setDate(d.getDate() - daysBack); d.setHours(h, m, 0, 0); return d; };
+    const when = d => d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const time = d => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    DEMO_LEADS = [
+      { id: 'QDEMO1', name: 'Karen Whitfield', contact: '(610) 555-0142', isEmail: false, phone: '6105550142', service: 'Mulching & Garden Care', zip: '19464', note: 'Front beds and around the mailbox. Hoping to get it done before Thanksgiving.', status: 'New', at: at(0, 7, 42) },
+      { id: 'QDEMO2', name: 'Dave Kowalski', contact: 'dave.kowalski@example.com', isEmail: true, phone: '', service: 'Mowing', zip: '19465', note: 'Looking for weekly mowing next season. Corner lot.', status: 'New', at: at(1, 19, 6) },
+      { id: 'QDEMO3', name: 'Maria Santos', contact: '(484) 555-0187', isEmail: false, phone: '4845550187', service: 'Trimming & Cleanups', zip: '19464', note: '', status: 'Contacted', at: at(3, 12, 18) },
+    ].map(l => Object.assign(l, { daysAgo: Math.round((new Date().setHours(0, 0, 0, 0) - new Date(l.at).setHours(0, 0, 0, 0)) / 86400000), when: when(l.at), time: time(l.at) }));
+    return DEMO_LEADS;
+  }
+  function demoLeadsView() {
+    const open = demoLeads().filter(l => l.status === 'New' || l.status === 'Contacted').map(l => Object.assign({}, l));
+    return { open, newCount: open.filter(l => l.status === 'New').length };
   }
   function toggleDemoRole() {
     const toCrew = S.pin === window.StrutDemo.OWNER_PIN;
@@ -1275,6 +1308,7 @@
   function headsUp(D) {
     const out = [];
     const m = D.money, w = D.work, sy = D.system;
+    if (D.leads && D.leads.newCount) out.push(['fix', `${plural(D.leads.newCount, 'new estimate request')} from your website, at the top of Dash`]);
     if (m.lateCount) out.push(['fix', `${plural(m.lateCount, 'late invoice')}: ${money(m.lateTotal)} past due`]);
     if (S.data.readyBills) out.push(['fix', `${esc(S.data.readyBills.month)} bills not sent yet: ${money(S.data.readyBills.total)}. Tap Send above.`]);
     if ((S.data.unpriced || []).length) out.push(['fix', `${plural(S.data.unpriced.length, 'crew job')} need a price before billing (Log tab)`]);
@@ -1349,6 +1383,7 @@
       ${readyCard('dash')}
       <div class="dash-head"><div class="dash-hi">${hi}</div>
         <button class="btn ghost sm" onclick="loadDash()">&#8635; ${esc(D.generated)}</button></div>
+      <div id="leadsBox">${leadsCard(D.leads)}</div>
 
       <div class="lbl">Heads up</div>
       <div class="card">${heads.length
@@ -1417,6 +1452,46 @@
         <div><span>Sales tax</span>${sy.taxRate}%</div>
         <div><span>Venmo on bills</span>${sy.venmoSet ? '<span style="color:var(--green)">On</span>' : 'Off'}</div>
       </div></div>`;
+  }
+
+  // ---------------- Estimate requests from the website ----------------
+  // Requests come in from the website's estimate form (Code.gs estimateRequest). New and Contacted ones
+  // sit at the top of Dash with one-tap Call / Text / Email. "Done" closes one and drops it off the list.
+  function leadsCard(L) {
+    if (!L || !L.open || !L.open.length) return '';
+    return `<div class="lbl">Estimate requests${L.newCount ? ` <span class="newpill">${L.newCount} new</span>` : ''}</div>
+      <div class="card list">${L.open.map(leadRow).join('')}</div>`;
+  }
+
+  function leadRow(l) {
+    const first = String(l.name || '').trim().split(/\s+/)[0] || 'there';
+    const me = (S.dash && S.dash.owner) || 'Stephen';
+    const hello = `Hi ${first}, this is ${me} from Strutynski Landscaping about the estimate you asked for.`;
+    const reach = l.isEmail
+      ? `<a class="btn gold sm" href="mailto:${encodeURIComponent(l.contact)}?subject=${encodeURIComponent('Your estimate request')}&body=${encodeURIComponent(hello)}">Email ${esc(first)}</a>`
+      : `<a class="btn gold sm" href="tel:+1${esc(l.phone)}">Call</a><a class="btn ghost sm" href="sms:+1${esc(l.phone)}?&body=${encodeURIComponent(hello)}">Text</a>`;
+    const id = esc(l.id);
+    return `<div class="lead">
+      <div class="row"><div class="grow who">${esc(l.name)}</div>
+        <span class="stlabel ${l.status === 'New' ? 'watch' : 'good'}">${esc(l.status)}</span></div>
+      <div class="muted">${esc(l.service)} &middot; ZIP ${esc(l.zip)} &middot; ${l.daysAgo < 2 ? ago(l.daysAgo) + (l.time ? ' at ' + esc(l.time) : '') : esc(l.when)}</div>
+      <div class="muted">${esc(l.contact)}</div>
+      ${l.note ? `<div class="note">&ldquo;${esc(l.note)}&rdquo;</div>` : ''}
+      <div class="acts">${reach}
+        ${l.status === 'New' ? `<button class="btn ghost sm" onclick="setLead('${id}', 'Contacted')">Mark contacted</button>` : ''}
+        <button class="btn ghost sm" onclick="setLead('${id}', 'Closed')">Done</button></div>
+    </div>`;
+  }
+
+  /** Saves the new status, then redraws only the requests card (and the Heads up count stays honest on the next refresh). */
+  async function setLead(id, status) {
+    if (S.busy) return;
+    setBusy(true, 'Saving...');
+    try { S.dash.leads = await call('leadStatus', { id, status }); }
+    catch (e) { setBusy(false); if (!(e && e.message === 'WRONG_PIN')) toast((e && e.message) || String(e), true); return; }
+    setBusy(false);
+    $('leadsBox').innerHTML = leadsCard(S.dash.leads);
+    toast(status === 'Closed' ? 'Done. Off the list.' : 'Marked contacted');
   }
 
   function acctRow(a) {
